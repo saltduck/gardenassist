@@ -203,3 +203,24 @@ export async function getRecentCareLogs(limit: number): Promise<Array<{ log: Car
 }
 
 export type { DueTask, TimelineItem }
+
+/** 将当前浏览器 localStorage 中的数据一次性上传到 D1（同步到云端） */
+export async function syncLocalToD1(): Promise<{
+  success: boolean
+  imported?: { plants: number; growthRecords: number; careLogs: number; careSchedules: number }
+  error?: string
+}> {
+  try {
+    const snapshot = local.getLocalSnapshot()
+    const r = await fetch(`${API_BASE}/import`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(snapshot),
+    })
+    const data = (await r.json()) as { success?: boolean; imported?: { plants: number; growthRecords: number; careLogs: number; careSchedules: number }; error?: string }
+    if (!r.ok) throw new Error(data.error || r.statusText)
+    return { success: true, imported: data.imported }
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : '上传失败' }
+  }
+}

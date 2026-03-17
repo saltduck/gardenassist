@@ -76,6 +76,80 @@ export const onRequest = async (context: Context) => {
       return Response.json(results.map(toPlant), { headers: CORS })
     }
 
+    // POST /api/data/import - 批量导入（用于从 localStorage 同步到 D1）
+    if (path === 'import' && method === 'POST') {
+      const body = (await request.json()) as any
+      const plants = Array.isArray(body.plants) ? body.plants : []
+      const growthRecords = Array.isArray(body.growthRecords) ? body.growthRecords : []
+      const careLogs = Array.isArray(body.careLogs) ? body.careLogs : []
+      const careSchedules = Array.isArray(body.careSchedules) ? body.careSchedules : []
+      for (const p of plants) {
+        await env.DB.prepare(
+          'INSERT OR REPLACE INTO plants (id, name, variety, location, planted_at, photo_url, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        )
+          .bind(
+            p.id ?? crypto.randomUUID(),
+            p.name ?? '',
+            p.variety ?? '',
+            p.location ?? '',
+            p.plantedAt ?? new Date().toISOString().slice(0, 10),
+            p.photoUrl ?? null,
+            p.notes ?? null,
+            p.createdAt ?? new Date().toISOString(),
+            p.updatedAt ?? new Date().toISOString()
+          )
+          .run()
+      }
+      for (const r of growthRecords) {
+        await env.DB.prepare(
+          'INSERT OR REPLACE INTO growth_records (id, plant_id, date, height, leaf_count, health_score, photo_url, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        )
+          .bind(
+            r.id ?? crypto.randomUUID(),
+            r.plantId,
+            r.date ?? new Date().toISOString().slice(0, 10),
+            r.height ?? null,
+            r.leafCount ?? null,
+            r.healthScore ?? null,
+            r.photoUrl ?? null,
+            r.notes ?? null,
+            r.createdAt ?? new Date().toISOString()
+          )
+          .run()
+      }
+      for (const l of careLogs) {
+        await env.DB.prepare(
+          'INSERT OR REPLACE INTO care_logs (id, plant_id, task_type, done_at, notes, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+        )
+          .bind(
+            l.id ?? crypto.randomUUID(),
+            l.plantId,
+            l.taskType ?? 'other',
+            l.doneAt ?? new Date().toISOString(),
+            l.notes ?? null,
+            l.createdAt ?? new Date().toISOString()
+          )
+          .run()
+      }
+      for (const s of careSchedules) {
+        await env.DB.prepare(
+          'INSERT OR REPLACE INTO care_schedules (id, plant_id, task_type, interval_days, created_at) VALUES (?, ?, ?, ?, ?)'
+        )
+          .bind(
+            s.id ?? crypto.randomUUID(),
+            s.plantId,
+            s.taskType ?? 'other',
+            s.intervalDays ?? 7,
+            s.createdAt ?? new Date().toISOString()
+          )
+          .run()
+      }
+      return Response.json(
+        { success: true, imported: { plants: plants.length, growthRecords: growthRecords.length, careLogs: careLogs.length, careSchedules: careSchedules.length } },
+        { headers: CORS }
+      )
+    }
+
     // POST /api/data/plants
     if (path === 'plants' && method === 'POST') {
       const body = (await request.json()) as any

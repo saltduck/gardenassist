@@ -65,6 +65,21 @@ function saveCareSchedules(schedules: CareSchedule[]): void {
   localStorage.setItem(KEY_SCHEDULES, JSON.stringify(schedules))
 }
 
+/** 读取当前 localStorage 中的全部数据，用于「上传到云端」一次性同步 */
+export function getLocalSnapshot(): {
+  plants: Plant[]
+  growthRecords: GrowthRecord[]
+  careLogs: CareLog[]
+  careSchedules: CareSchedule[]
+} {
+  return {
+    plants: loadPlants(),
+    growthRecords: loadGrowthRecords(),
+    careLogs: loadCareLogs(),
+    careSchedules: loadCareSchedules(),
+  }
+}
+
 export function getAllPlants(): Plant[] {
   return loadPlants()
 }
