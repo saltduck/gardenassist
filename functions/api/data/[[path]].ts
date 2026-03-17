@@ -249,16 +249,25 @@ export const onRequest = async (context: Context) => {
     if (pathParts[0] === 'plants' && pathParts.length === 2 && method === 'PUT') {
       const body = (await request.json()) as any
       const now = new Date().toISOString()
+      const currentRes = await env.DB.prepare('SELECT * FROM plants WHERE id = ?').bind(id).all()
+      if (!currentRes.results.length) return Response.json({ error: 'Not found' }, { status: 404, headers: CORS })
+      const current = currentRes.results[0] as any
+      const nextName = body.name !== undefined ? body.name : current.name
+      const nextVariety = body.variety !== undefined ? body.variety : current.variety
+      const nextLocation = body.location !== undefined ? body.location : current.location
+      const nextPlantedAt = body.plantedAt !== undefined ? body.plantedAt : current.planted_at
+      const nextPhotoUrl = body.photoUrl !== undefined ? body.photoUrl : current.photo_url
+      const nextNotes = body.notes !== undefined ? body.notes : current.notes
       await env.DB.prepare(
         'UPDATE plants SET name=?, variety=?, location=?, planted_at=?, photo_url=?, notes=?, updated_at=? WHERE id=?'
       )
         .bind(
-          body.name ?? '',
-          body.variety ?? '',
-          body.location ?? '',
-          body.plantedAt ?? '',
-          body.photoUrl ?? null,
-          body.notes ?? null,
+          nextName ?? '',
+          nextVariety ?? '',
+          nextLocation ?? '',
+          nextPlantedAt ?? '',
+          nextPhotoUrl ?? null,
+          nextNotes ?? null,
           now,
           id
         )
