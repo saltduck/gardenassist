@@ -6,6 +6,7 @@ import { PlantDetail } from './pages/PlantDetail'
 import { PlantForm } from './pages/PlantForm'
 import { Tasks } from './pages/Tasks'
 import { Calendar } from './pages/Calendar'
+import { Settings } from './pages/Settings'
 
 function App() {
   return (
@@ -19,6 +20,7 @@ function App() {
           <Route path="plants/:id/edit" element={<PlantForm />} />
           <Route path="tasks" element={<Tasks />} />
           <Route path="calendar" element={<Calendar />} />
+          <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>
     </BrowserRouter>

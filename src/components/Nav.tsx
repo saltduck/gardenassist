@@ -6,6 +6,7 @@ const links = [
   { to: '/plants/new', label: '添加植物' },
   { to: '/tasks', label: '待办' },
   { to: '/calendar', label: '日历' },
+  { to: '/settings', label: '设置' },
 ]
 
 export function Nav() {

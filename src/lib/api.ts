@@ -17,8 +17,8 @@ export interface AdviceResult {
   error?: string
 }
 
-export async function getAdvice(plantSummary: string, userQuestion: string): Promise<AdviceResult> {
-  return postJson<AdviceResult>('/advice', { plantSummary, userQuestion })
+export async function getAdvice(plantSummary: string, userQuestion: string, userLocation?: string): Promise<AdviceResult> {
+  return postJson<AdviceResult>('/advice', { plantSummary, userQuestion, userLocation: userLocation || undefined })
 }
 
 export interface IdentifyResult {

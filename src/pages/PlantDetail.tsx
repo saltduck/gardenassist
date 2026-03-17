@@ -23,6 +23,7 @@ import { CARE_TASK_TYPES } from '../types/plant'
 import type { Plant, GrowthRecord, CareLog, CareSchedule } from '../types/plant'
 import type { CareTaskType } from '../types/plant'
 import { useEffect, useState } from 'react'
+import { getUserSettings } from '../lib/user-settings'
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('zh-CN', {
@@ -66,6 +67,7 @@ export function PlantDetail() {
   const [carePlanItems, setCarePlanItems] = useState<CarePlanItem[] | null>(null)
   const [carePlanSelected, setCarePlanSelected] = useState<Set<number>>(new Set())
   const [carePlanError, setCarePlanError] = useState<string | null>(null)
+  const userLocation = getUserSettings().location
 
   const refresh = async () => {
     if (!id) return
@@ -193,7 +195,7 @@ export function PlantDetail() {
                   setAdviceLoading(true)
                   try {
                     const summary = `名称：${plant.name}，品种：${plant.variety || '未知'}，位置：${plant.location || '未填'}，备注：${plant.notes || '无'}`
-                    const res = await getAdvice(summary, adviceQuestion || '请给一些养护建议')
+                    const res = await getAdvice(summary, adviceQuestion || '请给一些养护建议', userLocation)
                     setAdviceResult(res.text ?? null)
                   } catch (e) {
                     setAdviceError(e instanceof Error ? e.message : '请求失败')
@@ -247,7 +249,8 @@ export function PlantDetail() {
                       setCarePlanItems(null)
                       setCarePlanLoading(true)
                       try {
-                        const res = await getCarePlan(plant.variety, plant.location)
+                        const locationCtx = [userLocation, plant.location].filter(Boolean).join('；')
+                        const res = await getCarePlan(plant.variety, locationCtx || undefined)
                         setCarePlanItems(res.items ?? [])
                         setCarePlanSelected(new Set((res.items ?? []).map((_, i) => i)))
                       } catch (e) {

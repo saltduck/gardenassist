@@ -5,9 +5,10 @@ export const onRequestPost = async (context: Context) => {
   const { request, env } = context
   const cors = { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' }
   try {
-    const body = (await request.json()) as { plantSummary?: string; userQuestion?: string }
+    const body = (await request.json()) as { plantSummary?: string; userQuestion?: string; userLocation?: string }
     const plantSummary = body.plantSummary ?? ''
     const userQuestion = body.userQuestion ?? ''
+    const userLocation = body.userLocation ?? ''
     if (!env.OPENAI_API_KEY) {
       return Response.json({
         success: false,
@@ -26,11 +27,11 @@ export const onRequestPost = async (context: Context) => {
           {
             role: 'system',
             content:
-              '你是园艺养护助手。根据用户提供的植物信息和问题，用中文给出简洁实用的养护建议（浇水、施肥、光照、常见问题等）。',
+              '你是园艺养护助手。根据用户提供的植物信息、所在地与问题，用中文给出简洁实用的养护建议（浇水、施肥、光照、常见问题等）。若有季节差异，请按所在地的季节/气候来判断。',
           },
           {
             role: 'user',
-            content: `植物信息：${plantSummary}\n\n用户问题：${userQuestion}`,
+            content: `所在地：${userLocation || '未提供'}\n\n植物信息：${plantSummary}\n\n用户问题：${userQuestion}`,
           },
         ],
         max_tokens: 1024,

@@ -65,6 +65,76 @@ function saveCareSchedules(schedules: CareSchedule[]): void {
   localStorage.setItem(KEY_SCHEDULES, JSON.stringify(schedules))
 }
 
+// ---- Cache helpers (用于 D1 read-through 缓存) ----
+
+export function cacheSetPlants(plants: Plant[]): void {
+  savePlants(plants)
+}
+
+export function cacheUpsertPlant(plant: Plant): void {
+  const plants = loadPlants()
+  const idx = plants.findIndex((p) => p.id === plant.id)
+  if (idx === -1) plants.push(plant)
+  else plants[idx] = plant
+  savePlants(plants)
+}
+
+export function cacheRemovePlant(plantId: string): void {
+  savePlants(loadPlants().filter((p) => p.id !== plantId))
+  saveGrowthRecords(loadGrowthRecords().filter((r) => r.plantId !== plantId))
+  saveCareLogs(loadCareLogs().filter((l) => l.plantId !== plantId))
+  saveCareSchedules(loadCareSchedules().filter((s) => s.plantId !== plantId))
+}
+
+export function cacheReplaceGrowthRecordsForPlant(plantId: string, records: GrowthRecord[]): void {
+  const all = loadGrowthRecords().filter((r) => r.plantId !== plantId)
+  saveGrowthRecords([...all, ...records])
+}
+
+export function cacheAddGrowthRecord(record: GrowthRecord): void {
+  const all = loadGrowthRecords()
+  all.push(record)
+  saveGrowthRecords(all)
+}
+
+export function cacheRemoveGrowthRecord(id: string): void {
+  saveGrowthRecords(loadGrowthRecords().filter((r) => r.id !== id))
+}
+
+export function cacheReplaceCareLogsForPlant(plantId: string, logs: CareLog[]): void {
+  const all = loadCareLogs().filter((l) => l.plantId !== plantId)
+  saveCareLogs([...all, ...logs])
+}
+
+export function cacheUpsertCareLog(log: CareLog): void {
+  const all = loadCareLogs()
+  const idx = all.findIndex((l) => l.id === log.id)
+  if (idx === -1) all.push(log)
+  else all[idx] = log
+  saveCareLogs(all)
+}
+
+export function cacheRemoveCareLog(id: string): void {
+  saveCareLogs(loadCareLogs().filter((l) => l.id !== id))
+}
+
+export function cacheReplaceSchedulesForPlant(plantId: string, schedules: CareSchedule[]): void {
+  const all = loadCareSchedules().filter((s) => s.plantId !== plantId)
+  saveCareSchedules([...all, ...schedules])
+}
+
+export function cacheUpsertSchedule(schedule: CareSchedule): void {
+  const all = loadCareSchedules()
+  const idx = all.findIndex((s) => s.id === schedule.id)
+  if (idx === -1) all.push(schedule)
+  else all[idx] = schedule
+  saveCareSchedules(all)
+}
+
+export function cacheRemoveSchedule(id: string): void {
+  saveCareSchedules(loadCareSchedules().filter((s) => s.id !== id))
+}
+
 /** 读取当前 localStorage 中的全部数据，用于「上传到云端」一次性同步 */
 export function getLocalSnapshot(): {
   plants: Plant[]

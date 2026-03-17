@@ -7,6 +7,7 @@ import type { DueTask, TimelineItem } from './storage'
 import * as local from './storage'
 
 const API_BASE = '/api/data'
+const KEY_OFFLINE_DIRTY = 'gardenassit_offline_dirty'
 
 async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
   const r = await fetch(`${API_BASE}${path}`, {
@@ -18,9 +19,49 @@ async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
   return r.json()
 }
 
+function markOfflineDirty(): void {
+  try {
+    localStorage.setItem(KEY_OFFLINE_DIRTY, '1')
+  } catch {}
+}
+
+function clearOfflineDirty(): void {
+  try {
+    localStorage.removeItem(KEY_OFFLINE_DIRTY)
+  } catch {}
+}
+
+export async function flushOfflineCacheToD1(): Promise<{ success: boolean; error?: string }> {
+  const dirty = typeof window !== 'undefined' ? localStorage.getItem(KEY_OFFLINE_DIRTY) : null
+  if (!dirty) return { success: true }
+  try {
+    const snapshot = local.getLocalSnapshot()
+    await fetchJson('/import', { method: 'POST', body: JSON.stringify(snapshot) })
+    clearOfflineDirty()
+    // 导入成功后，以 D1 为准刷新 plants 缓存（其余按需懒加载）
+    const plants = await fetchJson<Plant[]>('/plants')
+    local.cacheSetPlants(plants)
+    return { success: true }
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : '同步失败' }
+  }
+}
+
+let syncStarted = false
+export function startBackgroundSync(): void {
+  if (syncStarted) return
+  syncStarted = true
+  if (typeof window === 'undefined') return
+  window.addEventListener('online', () => { flushOfflineCacheToD1() })
+  // 首次进入页面也尝试补传一次（若离线 dirty）
+  flushOfflineCacheToD1()
+}
+
 export async function getAllPlants(): Promise<Plant[]> {
   try {
-    return await fetchJson<Plant[]>('/plants')
+    const plants = await fetchJson<Plant[]>('/plants')
+    local.cacheSetPlants(plants)
+    return plants
   } catch {
     return local.getAllPlants()
   }
@@ -28,7 +69,9 @@ export async function getAllPlants(): Promise<Plant[]> {
 
 export async function getPlantById(id: string): Promise<Plant | undefined> {
   try {
-    return await fetchJson<Plant>(`/plants/${id}`)
+    const plant = await fetchJson<Plant>(`/plants/${id}`)
+    local.cacheUpsertPlant(plant)
+    return plant
   } catch {
     return local.getPlantById(id)
   }
@@ -36,38 +79,51 @@ export async function getPlantById(id: string): Promise<Plant | undefined> {
 
 export async function createPlant(input: Omit<Plant, 'id' | 'createdAt' | 'updatedAt'>): Promise<Plant> {
   try {
-    return await fetchJson<Plant>('/plants', {
+    const plant = await fetchJson<Plant>('/plants', {
       method: 'POST',
       body: JSON.stringify(input),
     })
+    local.cacheUpsertPlant(plant)
+    return plant
   } catch {
-    return local.createPlant(input)
+    const plant = local.createPlant(input)
+    markOfflineDirty()
+    return plant
   }
 }
 
 export async function updatePlant(id: string, input: Partial<Omit<Plant, 'id' | 'createdAt'>>): Promise<Plant | undefined> {
   try {
-    return await fetchJson<Plant>(`/plants/${id}`, {
+    const plant = await fetchJson<Plant>(`/plants/${id}`, {
       method: 'PUT',
       body: JSON.stringify(input),
     })
+    local.cacheUpsertPlant(plant)
+    return plant
   } catch {
-    return local.updatePlant(id, input)
+    const plant = local.updatePlant(id, input)
+    markOfflineDirty()
+    return plant
   }
 }
 
 export async function deletePlant(id: string): Promise<boolean> {
   try {
     await fetchJson(`/plants/${id}`, { method: 'DELETE' })
+    local.cacheRemovePlant(id)
     return true
   } catch {
-    return local.deletePlant(id)
+    const ok = local.deletePlant(id)
+    if (ok) markOfflineDirty()
+    return ok
   }
 }
 
 export async function getGrowthRecordsByPlantId(plantId: string): Promise<GrowthRecord[]> {
   try {
-    return await fetchJson<GrowthRecord[]>(`/plants/${plantId}/growth`)
+    const records = await fetchJson<GrowthRecord[]>(`/plants/${plantId}/growth`)
+    local.cacheReplaceGrowthRecordsForPlant(plantId, records)
+    return records
   } catch {
     return local.getGrowthRecordsByPlantId(plantId)
   }
@@ -75,7 +131,7 @@ export async function getGrowthRecordsByPlantId(plantId: string): Promise<Growth
 
 export async function addGrowthRecord(input: Omit<GrowthRecord, 'id' | 'createdAt'>): Promise<GrowthRecord> {
   try {
-    return await fetchJson<GrowthRecord>(`/plants/${input.plantId}/growth`, {
+    const record = await fetchJson<GrowthRecord>(`/plants/${input.plantId}/growth`, {
       method: 'POST',
       body: JSON.stringify({
         ...input,
@@ -84,23 +140,32 @@ export async function addGrowthRecord(input: Omit<GrowthRecord, 'id' | 'createdA
         photoUrl: input.photoUrl,
       }),
     })
+    local.cacheAddGrowthRecord(record)
+    return record
   } catch {
-    return local.addGrowthRecord(input)
+    const record = local.addGrowthRecord(input)
+    markOfflineDirty()
+    return record
   }
 }
 
 export async function deleteGrowthRecord(id: string): Promise<boolean> {
   try {
     await fetchJson(`/growth/${id}`, { method: 'DELETE' })
+    local.cacheRemoveGrowthRecord(id)
     return true
   } catch {
-    return local.deleteGrowthRecord(id)
+    const ok = local.deleteGrowthRecord(id)
+    if (ok) markOfflineDirty()
+    return ok
   }
 }
 
 export async function getCareLogsByPlantId(plantId: string): Promise<CareLog[]> {
   try {
-    return await fetchJson<CareLog[]>(`/plants/${plantId}/care-logs`)
+    const logs = await fetchJson<CareLog[]>(`/plants/${plantId}/care-logs`)
+    local.cacheReplaceCareLogsForPlant(plantId, logs)
+    return logs
   } catch {
     return local.getCareLogsByPlantId(plantId)
   }
@@ -108,12 +173,16 @@ export async function getCareLogsByPlantId(plantId: string): Promise<CareLog[]> 
 
 export async function addCareLog(input: Omit<CareLog, 'id' | 'createdAt'>): Promise<CareLog> {
   try {
-    return await fetchJson<CareLog>(`/plants/${input.plantId}/care-logs`, {
+    const log = await fetchJson<CareLog>(`/plants/${input.plantId}/care-logs`, {
       method: 'POST',
       body: JSON.stringify(input),
     })
+    local.cacheUpsertCareLog(log)
+    return log
   } catch {
-    return local.addCareLog(input)
+    const log = local.addCareLog(input)
+    markOfflineDirty()
+    return log
   }
 }
 
@@ -122,27 +191,36 @@ export async function updateCareLog(
   input: Partial<Omit<CareLog, 'id' | 'plantId' | 'createdAt'>>
 ): Promise<CareLog | undefined> {
   try {
-    return await fetchJson<CareLog>(`/care-logs/${id}`, {
+    const log = await fetchJson<CareLog>(`/care-logs/${id}`, {
       method: 'PUT',
       body: JSON.stringify(input),
     })
+    local.cacheUpsertCareLog(log)
+    return log
   } catch {
-    return local.updateCareLog(id, input)
+    const log = local.updateCareLog(id, input)
+    markOfflineDirty()
+    return log
   }
 }
 
 export async function deleteCareLog(id: string): Promise<boolean> {
   try {
     await fetchJson(`/care-logs/${id}`, { method: 'DELETE' })
+    local.cacheRemoveCareLog(id)
     return true
   } catch {
-    return local.deleteCareLog(id)
+    const ok = local.deleteCareLog(id)
+    if (ok) markOfflineDirty()
+    return ok
   }
 }
 
 export async function getCareSchedulesByPlantId(plantId: string): Promise<CareSchedule[]> {
   try {
-    return await fetchJson<CareSchedule[]>(`/plants/${plantId}/schedules`)
+    const schedules = await fetchJson<CareSchedule[]>(`/plants/${plantId}/schedules`)
+    local.cacheReplaceSchedulesForPlant(plantId, schedules)
+    return schedules
   } catch {
     return local.getCareSchedulesByPlantId(plantId)
   }
@@ -150,12 +228,16 @@ export async function getCareSchedulesByPlantId(plantId: string): Promise<CareSc
 
 export async function addCareSchedule(input: Omit<CareSchedule, 'id' | 'createdAt'>): Promise<CareSchedule> {
   try {
-    return await fetchJson<CareSchedule>(`/plants/${input.plantId}/schedules`, {
+    const schedule = await fetchJson<CareSchedule>(`/plants/${input.plantId}/schedules`, {
       method: 'POST',
       body: JSON.stringify(input),
     })
+    local.cacheUpsertSchedule(schedule)
+    return schedule
   } catch {
-    return local.addCareSchedule(input)
+    const schedule = local.addCareSchedule(input)
+    markOfflineDirty()
+    return schedule
   }
 }
 
@@ -164,21 +246,28 @@ export async function updateCareSchedule(
   input: Partial<Omit<CareSchedule, 'id' | 'plantId' | 'createdAt'>>
 ): Promise<CareSchedule | undefined> {
   try {
-    return await fetchJson<CareSchedule>(`/schedules/${id}`, {
+    const schedule = await fetchJson<CareSchedule>(`/schedules/${id}`, {
       method: 'PUT',
       body: JSON.stringify(input),
     })
+    local.cacheUpsertSchedule(schedule)
+    return schedule
   } catch {
-    return local.updateCareSchedule(id, input)
+    const schedule = local.updateCareSchedule(id, input)
+    markOfflineDirty()
+    return schedule
   }
 }
 
 export async function deleteCareSchedule(id: string): Promise<boolean> {
   try {
     await fetchJson(`/schedules/${id}`, { method: 'DELETE' })
+    local.cacheRemoveSchedule(id)
     return true
   } catch {
-    return local.deleteCareSchedule(id)
+    const ok = local.deleteCareSchedule(id)
+    if (ok) markOfflineDirty()
+    return ok
   }
 }
 
