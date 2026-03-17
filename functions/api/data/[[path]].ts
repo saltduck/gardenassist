@@ -27,6 +27,18 @@ function todayLocal(tzOffsetMinutes: number): string {
   return isoToLocalDate(new Date().toISOString(), tzOffsetMinutes)
 }
 
+function inScheduleWindow(dateStr: string, startDate?: string | null, endDate?: string | null): boolean {
+  if (startDate && dateStr < startDate) return false
+  if (endDate && dateStr > endDate) return false
+  return true
+}
+
+function computeNextDue(today: string, lastDoneLocal: string | null, intervalDays: number, startDate?: string | null): string {
+  if (!lastDoneLocal) return startDate && startDate > today ? startDate : today
+  if (startDate && lastDoneLocal < startDate) return startDate
+  return addDays(lastDoneLocal, intervalDays)
+}
+
 function toPlant(row: any) {
   return {
     id: row.id,
@@ -69,6 +81,8 @@ function toSchedule(row: any) {
     plantId: row.plant_id,
     taskType: row.task_type,
     intervalDays: row.interval_days,
+    startDate: row.start_date ?? undefined,
+    endDate: row.end_date ?? undefined,
     createdAt: row.created_at,
   }
 }
@@ -321,9 +335,17 @@ export const onRequest = async (context: Context) => {
       const sid = crypto.randomUUID()
       const now = new Date().toISOString()
       await env.DB.prepare(
-        'INSERT INTO care_schedules (id, plant_id, task_type, interval_days, created_at) VALUES (?, ?, ?, ?, ?)'
+        'INSERT INTO care_schedules (id, plant_id, task_type, interval_days, start_date, end_date, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
       )
-        .bind(sid, id, body.taskType ?? 'other', body.intervalDays ?? 7, now)
+        .bind(
+          sid,
+          id,
+          body.taskType ?? 'other',
+          body.intervalDays ?? 7,
+          body.startDate ?? null,
+          body.endDate ?? null,
+          now
+        )
         .run()
       const { results } = await env.DB.prepare('SELECT * FROM care_schedules WHERE id = ?').bind(sid).all()
       return Response.json(toSchedule(results[0]), { status: 201, headers: CORS })
@@ -386,8 +408,10 @@ export const onRequest = async (context: Context) => {
       const body = (await request.json()) as any
       const nextTaskType = body.taskType ?? current.task_type
       const nextIntervalDays = body.intervalDays ?? current.interval_days
-      await env.DB.prepare('UPDATE care_schedules SET task_type = ?, interval_days = ? WHERE id = ?')
-        .bind(nextTaskType, nextIntervalDays, sid)
+      const nextStartDate = body.startDate !== undefined ? body.startDate : current.start_date
+      const nextEndDate = body.endDate !== undefined ? body.endDate : current.end_date
+      await env.DB.prepare('UPDATE care_schedules SET task_type = ?, interval_days = ?, start_date = ?, end_date = ? WHERE id = ?')
+        .bind(nextTaskType, nextIntervalDays, nextStartDate ?? null, nextEndDate ?? null, sid)
         .run()
       const after = await env.DB.prepare('SELECT * FROM care_schedules WHERE id = ?').bind(sid).all()
       return Response.json(toSchedule(after.results[0]), { headers: CORS })
@@ -415,8 +439,10 @@ export const onRequest = async (context: Context) => {
       for (const s of schedules) {
         const plant = getPlant(s.plant_id)
         if (!plant) continue
+        if (!inScheduleWindow(today, s.start_date, s.end_date)) continue
         const last = lastDone(s.plant_id, s.task_type)
-        const nextDue = last ? addDays(last, s.interval_days) : today
+        const nextDue = computeNextDue(today, last, s.interval_days, s.start_date)
+        if (s.end_date && nextDue > s.end_date) continue
         const inRange = range === 'today' ? nextDue <= today : nextDue >= today && nextDue <= endOfWeek
         if (inRange) result.push({ plant, schedule: toSchedule(s), nextDue, lastDoneAt: last ? last + 'T12:00:00Z' : null })
       }
@@ -439,8 +465,10 @@ export const onRequest = async (context: Context) => {
       }
       let count = 0
       for (const s of schedules) {
+        if (!inScheduleWindow(today, s.start_date, s.end_date)) continue
         const last = lastDone(s.plant_id, s.task_type)
-        const nextDue = last ? addDays(last, s.interval_days) : today
+        const nextDue = computeNextDue(today, last, s.interval_days, s.start_date)
+        if (s.end_date && nextDue > s.end_date) continue
         if (nextDue <= today) count++
       }
       return Response.json(count, { headers: CORS })
@@ -449,6 +477,7 @@ export const onRequest = async (context: Context) => {
     // GET /api/data/tasks/due/:date
     if (pathParts[0] === 'tasks' && pathParts[1] === 'due' && pathParts.length === 3 && method === 'GET') {
       const dateStr = pathParts[2]
+      const today = todayLocal(tzOffsetMinutes)
       const [plantsRes, schedulesRes, logsRes] = await Promise.all([
         env.DB.prepare('SELECT * FROM plants').all(),
         env.DB.prepare('SELECT * FROM care_schedules').all(),
@@ -466,8 +495,10 @@ export const onRequest = async (context: Context) => {
       for (const s of schedules) {
         const plant = getPlant(s.plant_id)
         if (!plant) continue
+        if (!inScheduleWindow(dateStr, s.start_date, s.end_date)) continue
         const last = lastDone(s.plant_id, s.task_type)
-        const nextDue = last ? addDays(last, s.interval_days) : todayLocal(tzOffsetMinutes)
+        const nextDue = computeNextDue(today, last, s.interval_days, s.start_date)
+        if (s.end_date && nextDue > s.end_date) continue
         if (nextDue === dateStr) result.push({ plant, schedule: toSchedule(s), nextDue, lastDoneAt: last ? last + 'T12:00:00Z' : null })
       }
       return Response.json(result, { headers: CORS })

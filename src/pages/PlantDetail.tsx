@@ -41,6 +41,15 @@ function formatDateOnly(iso: string) {
   })
 }
 
+function formatDateOnlyFromDate(dateStr?: string) {
+  if (!dateStr) return ''
+  return new Date(dateStr + 'T12:00:00Z').toLocaleDateString('zh-CN', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  })
+}
+
 export function PlantDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -59,6 +68,8 @@ export function PlantDetail() {
   const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null)
   const [editingScheduleTaskType, setEditingScheduleTaskType] = useState<CareSchedule['taskType']>('watering')
   const [editingScheduleIntervalDays, setEditingScheduleIntervalDays] = useState('7')
+  const [editingScheduleStartDate, setEditingScheduleStartDate] = useState('')
+  const [editingScheduleEndDate, setEditingScheduleEndDate] = useState('')
   const [adviceQuestion, setAdviceQuestion] = useState('')
   const [adviceLoading, setAdviceLoading] = useState(false)
   const [adviceResult, setAdviceResult] = useState<string | null>(null)
@@ -434,13 +445,38 @@ export function PlantDetail() {
                         />
                       </div>
                     </div>
+                    <div className="mt-3 grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-stone-600 mb-1">开始日期（可选）</label>
+                        <input
+                          type="date"
+                          value={editingScheduleStartDate}
+                          onChange={(e) => setEditingScheduleStartDate(e.target.value)}
+                          className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-stone-600 mb-1">截止日期（可选）</label>
+                        <input
+                          type="date"
+                          value={editingScheduleEndDate}
+                          onChange={(e) => setEditingScheduleEndDate(e.target.value)}
+                          className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
+                        />
+                      </div>
+                    </div>
                     <div className="mt-3 flex gap-2 justify-end">
                       <button
                         type="button"
                         onClick={async () => {
                           const days = Number(editingScheduleIntervalDays)
                           if (!Number.isFinite(days) || days < 1) return
-                          await updateCareSchedule(s.id, { taskType: editingScheduleTaskType, intervalDays: days })
+                          await updateCareSchedule(s.id, {
+                            taskType: editingScheduleTaskType,
+                            intervalDays: days,
+                            startDate: editingScheduleStartDate || undefined,
+                            endDate: editingScheduleEndDate || undefined,
+                          })
                           setEditingScheduleId(null)
                           refresh()
                         }}
@@ -463,6 +499,12 @@ export function PlantDetail() {
                       {CARE_TASK_TYPES.find((t) => t.value === s.taskType)?.label ?? s.taskType}
                     </span>
                     <span className="text-stone-600 text-sm">每 {s.intervalDays} 天</span>
+                    {(s.startDate || s.endDate) && (
+                      <span className="text-stone-500 text-xs">
+                        {s.startDate ? `开始 ${formatDateOnlyFromDate(s.startDate)}` : '开始 即刻'}
+                        {s.endDate ? ` · 截止 ${formatDateOnlyFromDate(s.endDate)}` : ''}
+                      </span>
+                    )}
                     <div className="flex gap-3 shrink-0">
                       <button
                         type="button"
@@ -470,6 +512,8 @@ export function PlantDetail() {
                           setEditingScheduleId(s.id)
                           setEditingScheduleTaskType(s.taskType)
                           setEditingScheduleIntervalDays(String(s.intervalDays))
+                          setEditingScheduleStartDate(s.startDate ?? '')
+                          setEditingScheduleEndDate(s.endDate ?? '')
                         }}
                         className="text-stone-600 text-sm hover:underline"
                       >
@@ -890,12 +934,20 @@ function ScheduleForm({
 }) {
   const [taskType, setTaskType] = useState<CareSchedule['taskType']>('watering')
   const [intervalDays, setIntervalDays] = useState('7')
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     const days = Number(intervalDays)
     if (days < 1) return
-    await addCareSchedule({ plantId, taskType, intervalDays: days })
+    await addCareSchedule({
+      plantId,
+      taskType,
+      intervalDays: days,
+      startDate: startDate || undefined,
+      endDate: endDate || undefined,
+    })
     onSuccess()
   }
 
@@ -921,6 +973,26 @@ function ScheduleForm({
             min="1"
             value={intervalDays}
             onChange={(e) => setIntervalDays(e.target.value)}
+            className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
+          />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-medium text-stone-600 mb-1">开始日期（可选）</label>
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+            className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-stone-600 mb-1">截止日期（可选）</label>
+          <input
+            type="date"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
             className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
           />
         </div>

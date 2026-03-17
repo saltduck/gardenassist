@@ -55,5 +55,9 @@ export interface CareSchedule {
   plantId: string
   taskType: CareTaskType
   intervalDays: number
+  /** 可选：开始日期（YYYY-MM-DD）。为空则立即生效 */
+  startDate?: string
+  /** 可选：截止日期（YYYY-MM-DD）。为空则长期有效 */
+  endDate?: string
   createdAt: string
 }

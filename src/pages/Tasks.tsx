@@ -26,6 +26,8 @@ function TaskRow({
   const [editing, setEditing] = useState(false)
   const [taskType, setTaskType] = useState(task.schedule.taskType)
   const [intervalDays, setIntervalDays] = useState(String(task.schedule.intervalDays))
+  const [startDate, setStartDate] = useState(task.schedule.startDate ?? '')
+  const [endDate, setEndDate] = useState(task.schedule.endDate ?? '')
 
   return (
     <li className="rounded-lg border border-stone-200 bg-white p-3">
@@ -98,13 +100,38 @@ function TaskRow({
               />
             </div>
           </div>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="block text-xs font-medium text-stone-600 mb-1">开始日期（可选）</label>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-stone-600 mb-1">截止日期（可选）</label>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
+              />
+            </div>
+          </div>
           <div className="mt-3 flex gap-2 justify-end">
             <button
               type="button"
               onClick={async () => {
                 const days = Number(intervalDays)
                 if (!Number.isFinite(days) || days < 1) return
-                await updateCareSchedule(task.schedule.id, { taskType, intervalDays: days })
+                await updateCareSchedule(task.schedule.id, {
+                  taskType,
+                  intervalDays: days,
+                  startDate: startDate || undefined,
+                  endDate: endDate || undefined,
+                })
                 setEditing(false)
                 onAfterChange()
               }}
@@ -114,7 +141,13 @@ function TaskRow({
             </button>
             <button
               type="button"
-              onClick={() => { setTaskType(task.schedule.taskType); setIntervalDays(String(task.schedule.intervalDays)); setEditing(false) }}
+              onClick={() => {
+                setTaskType(task.schedule.taskType)
+                setIntervalDays(String(task.schedule.intervalDays))
+                setStartDate(task.schedule.startDate ?? '')
+                setEndDate(task.schedule.endDate ?? '')
+                setEditing(false)
+              }}
               className="rounded border border-stone-300 px-3 py-1.5 text-sm hover:bg-stone-100"
             >
               取消
