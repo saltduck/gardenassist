@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { getUserSettings, setUserSettings } from '../lib/user-settings'
 
 const PRESETS = [
@@ -21,10 +21,22 @@ const PRESETS = [
 ]
 
 export function Settings() {
-  const initial = useMemo(() => getUserSettings(), [])
   const [preset, setPreset] = useState('')
-  const [location, setLocation] = useState(initial.location)
+  const [location, setLocation] = useState('')
   const [saved, setSaved] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let mounted = true
+    setLoading(true)
+    setError(null)
+    getUserSettings()
+      .then((s) => { if (mounted) setLocation(s.location || '') })
+      .catch((e) => { if (mounted) setError(e instanceof Error ? e.message : '加载失败') })
+      .finally(() => { if (mounted) setLoading(false) })
+    return () => { mounted = false }
+  }, [])
 
   return (
     <div>
@@ -32,6 +44,8 @@ export function Settings() {
       <p className="text-stone-600 mb-6">设置所在地后，AI 会结合当地季节/气候给出更贴近的养护建议。</p>
 
       <section className="rounded-lg border border-stone-200 bg-white p-4 shadow-sm space-y-3">
+        {loading && <p className="text-sm text-stone-500">加载中…</p>}
+        {error && <p className="text-sm text-red-600">{error}</p>}
         <div>
           <label className="block text-sm font-medium text-stone-700 mb-1">快速选择</label>
           <select
@@ -65,10 +79,16 @@ export function Settings() {
         <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={() => {
-              setUserSettings({ location: location.trim() })
-              setSaved(true)
-              setTimeout(() => setSaved(false), 1200)
+            disabled={loading}
+            onClick={async () => {
+              try {
+                setError(null)
+                await setUserSettings({ location: location.trim() })
+                setSaved(true)
+                setTimeout(() => setSaved(false), 1200)
+              } catch (e) {
+                setError(e instanceof Error ? e.message : '保存失败')
+              }
             }}
             className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
           >

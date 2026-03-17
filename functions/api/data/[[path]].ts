@@ -99,6 +99,24 @@ export const onRequest = async (context: Context) => {
       return Response.json(results.map(toPlant), { headers: CORS })
     }
 
+    // GET /api/data/settings
+    if (path === 'settings' && method === 'GET') {
+      const { results } = await env.DB.prepare('SELECT * FROM app_settings WHERE id = ?').bind('global').all()
+      const row = (results as any[])[0]
+      return Response.json({ location: row?.location ?? '' }, { headers: CORS })
+    }
+
+    // PUT /api/data/settings
+    if (path === 'settings' && method === 'PUT') {
+      const body = (await request.json()) as any
+      const location = typeof body.location === 'string' ? body.location : ''
+      const now = new Date().toISOString()
+      await env.DB.prepare('INSERT OR REPLACE INTO app_settings (id, location, updated_at) VALUES (?, ?, ?)')
+        .bind('global', location, now)
+        .run()
+      return Response.json({ location }, { headers: CORS })
+    }
+
     // POST /api/data/import - 批量导入（用于从 localStorage 同步到 D1）
     if (path === 'import' && method === 'POST') {
       let body: any

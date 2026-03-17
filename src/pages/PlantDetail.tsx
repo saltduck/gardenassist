@@ -18,7 +18,7 @@ import {
 } from '../lib/storage-api'
 import { getAdvice, getCarePlan } from '../lib/api'
 import type { CarePlanItem } from '../lib/api'
-import type { TimelineItem } from '../lib/storage-api'
+import type { TimelineItem } from '../types/data'
 import { CARE_TASK_TYPES } from '../types/plant'
 import type { Plant, GrowthRecord, CareLog, CareSchedule } from '../types/plant'
 import type { CareTaskType } from '../types/plant'
@@ -67,7 +67,7 @@ export function PlantDetail() {
   const [carePlanItems, setCarePlanItems] = useState<CarePlanItem[] | null>(null)
   const [carePlanSelected, setCarePlanSelected] = useState<Set<number>>(new Set())
   const [carePlanError, setCarePlanError] = useState<string | null>(null)
-  const userLocation = getUserSettings().location
+  const [userLocation, setUserLocation] = useState('')
 
   const refresh = async () => {
     if (!id) return
@@ -88,6 +88,14 @@ export function PlantDetail() {
   useEffect(() => {
     refresh()
   }, [id])
+
+  useEffect(() => {
+    let mounted = true
+    getUserSettings()
+      .then((s) => { if (mounted) setUserLocation(s.location || '') })
+      .catch(() => {})
+    return () => { mounted = false }
+  }, [])
 
   const handleDeletePlant = async () => {
     if (!id || !plant) return

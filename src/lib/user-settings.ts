@@ -1,21 +1,25 @@
-export interface UserSettings {
-  location: string // e.g. "中国 上海" / "Singapore" / "US - Bay Area"
+import type { AppSettings } from '../types/data'
+
+const API_BASE = '/api/data'
+
+async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
+  const r = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+  })
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText)
+  return r.json()
 }
 
-const KEY = 'gardenassit_user_settings'
-
-export function getUserSettings(): UserSettings {
+export async function getUserSettings(): Promise<AppSettings> {
   try {
-    const raw = localStorage.getItem(KEY)
-    if (!raw) return { location: '' }
-    const parsed = JSON.parse(raw) as Partial<UserSettings>
-    return { location: typeof parsed.location === 'string' ? parsed.location : '' }
+    return await fetchJson<AppSettings>('/settings')
   } catch {
     return { location: '' }
   }
 }
 
-export function setUserSettings(next: UserSettings): void {
-  localStorage.setItem(KEY, JSON.stringify(next))
+export async function setUserSettings(next: AppSettings): Promise<void> {
+  await fetchJson('/settings', { method: 'PUT', body: JSON.stringify(next) })
 }
 
