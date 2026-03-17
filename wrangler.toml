@@ -5,6 +5,7 @@ pages_build_output_dir = "./dist"
 compatibility_date = "2024-01-01"
 
 [[d1_databases]]
-binding = "DB"
-database_name = "gardenassit-db"
-database_id = "YOUR_D1_DATABASE_ID"
+binding = "gardenassist"
+database_name = "gardenassist"
+database_id = "5b295bd6-c85f-453b-ba51-11d044fc887a"
+

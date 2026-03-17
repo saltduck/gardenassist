@@ -14,7 +14,10 @@ export const onRequestPost = async (context: Context) => {
       return Response.json({ success: false, error: '请提供 variety（品种/名称）' }, { status: 400, headers: cors })
     }
     if (!env.OPENAI_API_KEY) {
-      return Response.json({ success: false, error: 'OPENAI_API_KEY 未配置' }, { status: 500, headers: cors })
+      return Response.json({
+        success: false,
+        error: 'OPENAI_API_KEY 未配置。请到 Pages 项目 Settings → Environment variables 为当前环境添加 OPENAI_API_KEY 并重新部署。',
+      }, { status: 500, headers: cors })
     }
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',

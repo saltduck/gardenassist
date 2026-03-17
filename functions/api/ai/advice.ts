@@ -9,7 +9,10 @@ export const onRequestPost = async (context: Context) => {
     const plantSummary = body.plantSummary ?? ''
     const userQuestion = body.userQuestion ?? ''
     if (!env.OPENAI_API_KEY) {
-      return Response.json({ success: false, error: 'OPENAI_API_KEY 未配置' }, { status: 500, headers: cors })
+      return Response.json({
+        success: false,
+        error: 'OPENAI_API_KEY 未配置。请在 Cloudflare Dashboard → Pages → 本项目 → Settings → Environment variables 中为 Production 和 Preview 都添加 OPENAI_API_KEY，然后重新部署。',
+      }, { status: 500, headers: cors })
     }
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',

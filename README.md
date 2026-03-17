@@ -75,6 +75,13 @@ npm run dev
 
 4. **AI 与 D1**：在 [Cloudflare Dashboard](https://dash.cloudflare.com) → **Pages** → 项目 **gardenassit** → **Settings** → **Environment variables** 中配置 `OPENAI_API_KEY`；在 **Functions** → **D1 database bindings** 中绑定变量名 `DB` 到你的 D1 数据库。
 
+### 已添加 OPENAI_API_KEY 仍提示「未配置」时
+
+1. **环境要选对**：在 Environment variables 里，变量要同时加到 **Production** 和 **Preview**（或至少你当前访问的环境）。编辑变量时选择 “Production and Preview” 或分别勾选。
+2. **变量名必须一致**：名称填 **`OPENAI_API_KEY`**，不要多空格、不要改大小写。
+3. **添加后需重新部署**：改完变量要点 **Save**，然后到 **Deployments** 里对最新一次部署点 **Retry deployment**，或重新执行一次 `npm run deploy`，新环境变量才会生效。
+4. **若是用 wrangler 直接上传**：Dashboard 里配的变量也会生效，但若仍不生效，可检查是否在正确的 Pages 项目、以及上面 1～3 步。
+
 ---
 
 ## 部署（含 Phase 5 AI）
