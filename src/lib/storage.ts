@@ -286,8 +286,24 @@ export interface DueTask {
   lastDoneAt: string | null // ISO
 }
 
-function toDateOnly(iso: string): string {
-  return iso.slice(0, 10)
+function toLocalDateOnly(iso: string): string {
+  const d = new Date(iso)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function todayLocal(): string {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function sameIso(localDate: string | null): string | null {
+  return localDate ? localDate + 'T12:00:00Z' : null
 }
 
 function addDays(dateStr: string, days: number): string {
@@ -297,8 +313,7 @@ function addDays(dateStr: string, days: number): string {
 }
 
 export function getDueTasks(range: 'today' | 'week'): DueTask[] {
-  const now = new Date()
-  const today = toDateOnly(now.toISOString())
+  const today = todayLocal()
   const endOfWeek = addDays(today, 6)
   const plants = loadPlants()
   const schedules = loadCareSchedules()
@@ -308,7 +323,7 @@ export function getDueTasks(range: 'today' | 'week'): DueTask[] {
     const same = logs
       .filter((l) => l.plantId === plantId && l.taskType === taskType)
       .sort((a, b) => (b.doneAt > a.doneAt ? 1 : -1))
-    return same[0] ? toDateOnly(same[0].doneAt) : null
+    return same[0] ? toLocalDateOnly(same[0].doneAt) : null
   }
 
   const result: DueTask[] = []
@@ -328,7 +343,7 @@ export function getDueTasks(range: 'today' | 'week'): DueTask[] {
         plant,
         schedule,
         nextDue,
-        lastDoneAt: last ? last + 'T12:00:00Z' : null,
+        lastDoneAt: sameIso(last),
       })
     }
   }
@@ -350,7 +365,7 @@ export function getDueTasksForDate(dateStr: string): DueTask[] {
     const same = logs
       .filter((l) => l.plantId === plantId && l.taskType === taskType)
       .sort((a, b) => (b.doneAt > a.doneAt ? 1 : -1))
-    return same[0] ? toDateOnly(same[0].doneAt) : null
+    return same[0] ? toLocalDateOnly(same[0].doneAt) : null
   }
 
   const result: DueTask[] = []
@@ -360,13 +375,13 @@ export function getDueTasksForDate(dateStr: string): DueTask[] {
     const last = lastDone(schedule.plantId, schedule.taskType)
     const nextDue = last
       ? addDays(last, schedule.intervalDays)
-      : toDateOnly(new Date().toISOString())
+      : todayLocal()
     if (nextDue === dateStr) {
       result.push({
         plant,
         schedule,
         nextDue,
-        lastDoneAt: last ? last + 'T12:00:00Z' : null,
+        lastDoneAt: sameIso(last),
       })
     }
   }
@@ -375,7 +390,7 @@ export function getDueTasksForDate(dateStr: string): DueTask[] {
 
 /** 指定日期已完成的养护记录（用于日历） */
 export function getCareLogsForDate(dateStr: string): CareLog[] {
-  return loadCareLogs().filter((l) => toDateOnly(l.doneAt) === dateStr)
+  return loadCareLogs().filter((l) => toLocalDateOnly(l.doneAt) === dateStr)
 }
 
 /** 最近养护记录（含植物信息，用于仪表盘） */

@@ -7,12 +7,10 @@ import { CARE_TASK_TYPES } from '../types/plant'
 
 const KEY_LAST_SYNC_AT = 'gardenassit_last_cloud_sync_at'
 
-function formatDateTime(iso: string) {
-  return new Date(iso).toLocaleString('zh-CN', {
+function formatDateOnly(iso: string) {
+  return new Date(iso).toLocaleDateString('zh-CN', {
     month: 'short',
     day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
   })
 }
 
@@ -167,7 +165,7 @@ export function Dashboard() {
                     <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">
                       {CARE_TASK_TYPES.find((t) => t.value === log.taskType)?.label ?? log.taskType}
                     </span>
-                    <span className="ml-2 text-sm text-stone-500">{formatDateTime(log.doneAt)}</span>
+                    <span className="ml-2 text-sm text-stone-500">{formatDateOnly(log.doneAt)}</span>
                   </Link>
                 </li>
               ))}

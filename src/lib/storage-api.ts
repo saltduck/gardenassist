@@ -192,7 +192,8 @@ export async function getTimelineByPlantId(plantId: string): Promise<TimelineIte
 
 export async function getDueTasks(range: 'today' | 'week'): Promise<DueTask[]> {
   try {
-    return await fetchJson<DueTask[]>(`/tasks/due?range=${range}`)
+    const tzOffsetMinutes = new Date().getTimezoneOffset()
+    return await fetchJson<DueTask[]>(`/tasks/due?range=${range}&tzOffsetMinutes=${encodeURIComponent(String(tzOffsetMinutes))}`)
   } catch {
     return local.getDueTasks(range)
   }
@@ -200,7 +201,8 @@ export async function getDueTasks(range: 'today' | 'week'): Promise<DueTask[]> {
 
 export async function getTodayDueCount(): Promise<number> {
   try {
-    return await fetchJson<number>('/tasks/today-count')
+    const tzOffsetMinutes = new Date().getTimezoneOffset()
+    return await fetchJson<number>(`/tasks/today-count?tzOffsetMinutes=${encodeURIComponent(String(tzOffsetMinutes))}`)
   } catch {
     return local.getTodayDueCount()
   }
@@ -208,7 +210,8 @@ export async function getTodayDueCount(): Promise<number> {
 
 export async function getDueTasksForDate(dateStr: string): Promise<DueTask[]> {
   try {
-    return await fetchJson<DueTask[]>(`/tasks/due/${dateStr}`)
+    const tzOffsetMinutes = new Date().getTimezoneOffset()
+    return await fetchJson<DueTask[]>(`/tasks/due/${dateStr}?tzOffsetMinutes=${encodeURIComponent(String(tzOffsetMinutes))}`)
   } catch {
     return local.getDueTasksForDate(dateStr)
   }

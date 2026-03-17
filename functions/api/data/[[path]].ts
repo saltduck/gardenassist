@@ -7,6 +7,26 @@ type Context = { request: Request; env: Env; params: { path?: string } }
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' }
 
+function parseTzOffset(url: URL): number {
+  const raw = url.searchParams.get('tzOffsetMinutes')
+  if (!raw) return 0
+  const n = Number(raw)
+  return Number.isFinite(n) ? n : 0
+}
+
+/** 将 ISO 时间按 tzOffsetMinutes 转为本地日期 YYYY-MM-DD */
+function isoToLocalDate(iso: string, tzOffsetMinutes: number): string {
+  const ms = Date.parse(iso)
+  if (!Number.isFinite(ms)) return iso.slice(0, 10)
+  // getTimezoneOffset: local -> UTC needs +offset; so UTC -> local needs -offset
+  const shifted = new Date(ms - tzOffsetMinutes * 60_000)
+  return shifted.toISOString().slice(0, 10)
+}
+
+function todayLocal(tzOffsetMinutes: number): string {
+  return isoToLocalDate(new Date().toISOString(), tzOffsetMinutes)
+}
+
 function toPlant(row: any) {
   return {
     id: row.id,
@@ -66,6 +86,7 @@ export const onRequest = async (context: Context) => {
     const path = (Array.isArray(raw) ? raw.join('/') : (raw ?? '')).replace(/\/$/, '')
     const method = request.method
     const url = new URL(request.url)
+    const tzOffsetMinutes = parseTzOffset(url)
 
     if (!env.DB) {
       return Response.json({ error: 'D1 未绑定' }, { status: 503, headers: CORS })
@@ -357,7 +378,7 @@ export const onRequest = async (context: Context) => {
     // GET /api/data/tasks/due?range=today|week
     if (pathParts[0] === 'tasks' && pathParts[1] === 'due' && method === 'GET') {
       const range = url.searchParams.get('range') || 'today'
-      const today = new Date().toISOString().slice(0, 10)
+      const today = todayLocal(tzOffsetMinutes)
       const endOfWeek = addDays(today, 6)
       const [plantsRes, schedulesRes, logsRes] = await Promise.all([
         env.DB.prepare('SELECT * FROM plants').all(),
@@ -370,7 +391,7 @@ export const onRequest = async (context: Context) => {
       const getPlant = (pid: string) => plants.find((p: any) => p.id === pid)
       const lastDone = (plantId: string, taskType: string) => {
         const same = logs.filter((l: any) => l.plant_id === plantId && l.task_type === taskType)
-        return same[0] ? same[0].done_at.slice(0, 10) : null
+        return same[0] ? isoToLocalDate(same[0].done_at, tzOffsetMinutes) : null
       }
       const result: any[] = []
       for (const s of schedules) {
@@ -387,7 +408,7 @@ export const onRequest = async (context: Context) => {
 
     // GET /api/data/tasks/today-count
     if (pathParts[0] === 'tasks' && pathParts[1] === 'today-count' && method === 'GET') {
-      const today = new Date().toISOString().slice(0, 10)
+      const today = todayLocal(tzOffsetMinutes)
       const [schedulesRes, logsRes] = await Promise.all([
         env.DB.prepare('SELECT * FROM care_schedules').all(),
         env.DB.prepare('SELECT * FROM care_logs ORDER BY done_at DESC').all(),
@@ -396,7 +417,7 @@ export const onRequest = async (context: Context) => {
       const logs = logsRes.results as any[]
       const lastDone = (plantId: string, taskType: string) => {
         const same = logs.filter((l: any) => l.plant_id === plantId && l.task_type === taskType)
-        return same[0] ? same[0].done_at.slice(0, 10) : null
+        return same[0] ? isoToLocalDate(same[0].done_at, tzOffsetMinutes) : null
       }
       let count = 0
       for (const s of schedules) {
@@ -421,14 +442,14 @@ export const onRequest = async (context: Context) => {
       const getPlant = (pid: string) => plants.find((p: any) => p.id === pid)
       const lastDone = (plantId: string, taskType: string) => {
         const same = logs.filter((l: any) => l.plant_id === plantId && l.task_type === taskType)
-        return same[0] ? same[0].done_at.slice(0, 10) : null
+        return same[0] ? isoToLocalDate(same[0].done_at, tzOffsetMinutes) : null
       }
       const result: any[] = []
       for (const s of schedules) {
         const plant = getPlant(s.plant_id)
         if (!plant) continue
         const last = lastDone(s.plant_id, s.task_type)
-        const nextDue = last ? addDays(last, s.interval_days) : new Date().toISOString().slice(0, 10)
+        const nextDue = last ? addDays(last, s.interval_days) : todayLocal(tzOffsetMinutes)
         if (nextDue === dateStr) result.push({ plant, schedule: toSchedule(s), nextDue, lastDoneAt: last ? last + 'T12:00:00Z' : null })
       }
       return Response.json(result, { headers: CORS })

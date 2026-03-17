@@ -32,13 +32,11 @@ function formatDate(iso: string) {
   })
 }
 
-function formatDateTime(iso: string) {
-  return new Date(iso).toLocaleString('zh-CN', {
+function formatDateOnly(iso: string) {
+  return new Date(iso).toLocaleDateString('zh-CN', {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
   })
 }
 
@@ -646,7 +644,7 @@ export function PlantDetail() {
                       <span className="rounded bg-amber-100 px-2 py-0.5 text-sm text-amber-700">
                         {CARE_TASK_TYPES.find((t) => t.value === log.taskType)?.label ?? log.taskType}
                       </span>
-                      <span className="ml-2 text-stone-600 text-sm">{formatDateTime(log.doneAt)}</span>
+                      <span className="ml-2 text-stone-600 text-sm">{formatDateOnly(log.doneAt)}</span>
                       {log.notes && <p className="text-sm text-stone-500 mt-1">{log.notes}</p>}
                     </div>
                     <div className="flex gap-3 shrink-0">
