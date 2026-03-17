@@ -12,6 +12,8 @@ import {
   deleteGrowthRecord,
   deleteCareLog,
   deleteCareSchedule,
+  updateCareLog,
+  updateCareSchedule,
   updatePlant,
 } from '../lib/storage-api'
 import { getAdvice, getCarePlan } from '../lib/api'
@@ -51,6 +53,13 @@ export function PlantDetail() {
   const [showGrowthForm, setShowGrowthForm] = useState(false)
   const [showCareForm, setShowCareForm] = useState(false)
   const [showScheduleForm, setShowScheduleForm] = useState(false)
+  const [editingCareLogId, setEditingCareLogId] = useState<string | null>(null)
+  const [editingCareLogTaskType, setEditingCareLogTaskType] = useState<CareLog['taskType']>('watering')
+  const [editingCareLogDoneAt, setEditingCareLogDoneAt] = useState('')
+  const [editingCareLogNotes, setEditingCareLogNotes] = useState('')
+  const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null)
+  const [editingScheduleTaskType, setEditingScheduleTaskType] = useState<CareSchedule['taskType']>('watering')
+  const [editingScheduleIntervalDays, setEditingScheduleIntervalDays] = useState('7')
   const [adviceQuestion, setAdviceQuestion] = useState('')
   const [adviceLoading, setAdviceLoading] = useState(false)
   const [adviceResult, setAdviceResult] = useState<string | null>(null)
@@ -390,22 +399,88 @@ export function PlantDetail() {
                 key={s.id}
                 className="flex items-center justify-between gap-2 rounded-lg border border-stone-200 bg-white p-3"
               >
-                <span className="rounded bg-amber-100 px-2 py-0.5 text-sm text-amber-700">
-                  {CARE_TASK_TYPES.find((t) => t.value === s.taskType)?.label ?? s.taskType}
-                </span>
-                <span className="text-stone-600 text-sm">每 {s.intervalDays} 天</span>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (window.confirm('删除这条养护计划？')) {
-                      await deleteCareSchedule(s.id)
-                      refresh()
-                    }
-                  }}
-                  className="text-red-500 text-sm hover:underline shrink-0"
-                >
-                  删除
-                </button>
+                {editingScheduleId === s.id ? (
+                  <div className="w-full">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-stone-600 mb-1">类型</label>
+                        <select
+                          value={editingScheduleTaskType}
+                          onChange={(e) => setEditingScheduleTaskType(e.target.value as CareSchedule['taskType'])}
+                          className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
+                        >
+                          {CARE_TASK_TYPES.map((t) => (
+                            <option key={t.value} value={t.value}>{t.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-stone-600 mb-1">间隔（天）</label>
+                        <input
+                          type="number"
+                          min="1"
+                          value={editingScheduleIntervalDays}
+                          onChange={(e) => setEditingScheduleIntervalDays(e.target.value)}
+                          className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
+                        />
+                      </div>
+                    </div>
+                    <div className="mt-3 flex gap-2 justify-end">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const days = Number(editingScheduleIntervalDays)
+                          if (!Number.isFinite(days) || days < 1) return
+                          await updateCareSchedule(s.id, { taskType: editingScheduleTaskType, intervalDays: days })
+                          setEditingScheduleId(null)
+                          refresh()
+                        }}
+                        className="rounded bg-emerald-600 px-3 py-1.5 text-sm text-white hover:bg-emerald-700"
+                      >
+                        保存
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingScheduleId(null)}
+                        className="rounded border border-stone-300 px-3 py-1.5 text-sm hover:bg-stone-100"
+                      >
+                        取消
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <span className="rounded bg-amber-100 px-2 py-0.5 text-sm text-amber-700">
+                      {CARE_TASK_TYPES.find((t) => t.value === s.taskType)?.label ?? s.taskType}
+                    </span>
+                    <span className="text-stone-600 text-sm">每 {s.intervalDays} 天</span>
+                    <div className="flex gap-3 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingScheduleId(s.id)
+                          setEditingScheduleTaskType(s.taskType)
+                          setEditingScheduleIntervalDays(String(s.intervalDays))
+                        }}
+                        className="text-stone-600 text-sm hover:underline"
+                      >
+                        编辑
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (window.confirm('删除这条养护计划？')) {
+                            await deleteCareSchedule(s.id)
+                            refresh()
+                          }
+                        }}
+                        className="text-red-500 text-sm hover:underline"
+                      >
+                        删除
+                      </button>
+                    </div>
+                  </>
+                )}
               </li>
             ))}
           </ul>
@@ -505,25 +580,103 @@ export function PlantDetail() {
                 key={log.id}
                 className="flex items-start justify-between gap-2 rounded-lg border border-stone-200 bg-white p-3"
               >
-                <div>
-                  <span className="rounded bg-amber-100 px-2 py-0.5 text-sm text-amber-700">
-                    {CARE_TASK_TYPES.find((t) => t.value === log.taskType)?.label ?? log.taskType}
-                  </span>
-                  <span className="ml-2 text-stone-600 text-sm">{formatDateTime(log.doneAt)}</span>
-                  {log.notes && <p className="text-sm text-stone-500 mt-1">{log.notes}</p>}
-                </div>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (window.confirm('删除这条养护记录？')) {
-                      await deleteCareLog(log.id)
-                      refresh()
-                    }
-                  }}
-                  className="text-red-500 text-sm hover:underline shrink-0"
-                >
-                  删除
-                </button>
+                {editingCareLogId === log.id ? (
+                  <div className="w-full">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-stone-600 mb-1">类型</label>
+                        <select
+                          value={editingCareLogTaskType}
+                          onChange={(e) => setEditingCareLogTaskType(e.target.value as CareLog['taskType'])}
+                          className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
+                        >
+                          {CARE_TASK_TYPES.map((t) => (
+                            <option key={t.value} value={t.value}>{t.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-stone-600 mb-1">完成时间</label>
+                        <input
+                          type="datetime-local"
+                          value={editingCareLogDoneAt}
+                          onChange={(e) => setEditingCareLogDoneAt(e.target.value)}
+                          className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
+                        />
+                      </div>
+                    </div>
+                    <div className="mt-3">
+                      <label className="block text-xs font-medium text-stone-600 mb-1">备注</label>
+                      <textarea
+                        value={editingCareLogNotes}
+                        onChange={(e) => setEditingCareLogNotes(e.target.value)}
+                        rows={2}
+                        className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
+                      />
+                    </div>
+                    <div className="mt-3 flex gap-2 justify-end">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const iso = editingCareLogDoneAt ? new Date(editingCareLogDoneAt).toISOString() : log.doneAt
+                          await updateCareLog(log.id, {
+                            taskType: editingCareLogTaskType,
+                            doneAt: iso,
+                            notes: editingCareLogNotes || undefined,
+                          })
+                          setEditingCareLogId(null)
+                          refresh()
+                        }}
+                        className="rounded bg-emerald-600 px-3 py-1.5 text-sm text-white hover:bg-emerald-700"
+                      >
+                        保存
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingCareLogId(null)}
+                        className="rounded border border-stone-300 px-3 py-1.5 text-sm hover:bg-stone-100"
+                      >
+                        取消
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div>
+                      <span className="rounded bg-amber-100 px-2 py-0.5 text-sm text-amber-700">
+                        {CARE_TASK_TYPES.find((t) => t.value === log.taskType)?.label ?? log.taskType}
+                      </span>
+                      <span className="ml-2 text-stone-600 text-sm">{formatDateTime(log.doneAt)}</span>
+                      {log.notes && <p className="text-sm text-stone-500 mt-1">{log.notes}</p>}
+                    </div>
+                    <div className="flex gap-3 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingCareLogId(log.id)
+                          setEditingCareLogTaskType(log.taskType)
+                          setEditingCareLogDoneAt(new Date(log.doneAt).toISOString().slice(0, 16))
+                          setEditingCareLogNotes(log.notes ?? '')
+                        }}
+                        className="text-stone-600 text-sm hover:underline"
+                      >
+                        编辑
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (window.confirm('删除这条养护记录？')) {
+                            await deleteCareLog(log.id)
+                            refresh()
+                          }
+                        }}
+                        className="text-red-500 text-sm hover:underline"
+                      >
+                        删除
+                      </button>
+                    </div>
+                  </>
+                )}
               </li>
             ))}
           </ul>

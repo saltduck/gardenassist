@@ -62,7 +62,8 @@ function addDays(dateStr: string, days: number): string {
 export const onRequest = async (context: Context) => {
   try {
     const { request, env, params } = context
-    const path = ((params && params.path) ?? '').replace(/\/$/, '')
+    const raw = params?.path
+    const path = (Array.isArray(raw) ? raw.join('/') : (raw ?? '')).replace(/\/$/, '')
     const method = request.method
     const url = new URL(request.url)
 
@@ -314,10 +315,43 @@ export const onRequest = async (context: Context) => {
       return new Response(null, { status: 204, headers: CORS })
     }
 
+    // PUT /api/data/care-logs/:id
+    if (pathParts[0] === 'care-logs' && pathParts.length === 2 && method === 'PUT') {
+      const cid = pathParts[1]
+      const { results } = await env.DB.prepare('SELECT * FROM care_logs WHERE id = ?').bind(cid).all()
+      if (!results.length) return Response.json({ error: 'Not found' }, { status: 404, headers: CORS })
+      const current = results[0] as any
+      const body = (await request.json()) as any
+      const nextTaskType = body.taskType ?? current.task_type
+      const nextDoneAt = body.doneAt ?? current.done_at
+      const nextNotes = body.notes !== undefined ? body.notes : current.notes
+      await env.DB.prepare('UPDATE care_logs SET task_type = ?, done_at = ?, notes = ? WHERE id = ?')
+        .bind(nextTaskType, nextDoneAt, nextNotes ?? null, cid)
+        .run()
+      const after = await env.DB.prepare('SELECT * FROM care_logs WHERE id = ?').bind(cid).all()
+      return Response.json(toCareLog(after.results[0]), { headers: CORS })
+    }
+
     // DELETE /api/data/schedules/:id
     if (pathParts[0] === 'schedules' && pathParts.length === 2 && method === 'DELETE') {
       await env.DB.prepare('DELETE FROM care_schedules WHERE id = ?').bind(pathParts[1]).run()
       return new Response(null, { status: 204, headers: CORS })
+    }
+
+    // PUT /api/data/schedules/:id
+    if (pathParts[0] === 'schedules' && pathParts.length === 2 && method === 'PUT') {
+      const sid = pathParts[1]
+      const { results } = await env.DB.prepare('SELECT * FROM care_schedules WHERE id = ?').bind(sid).all()
+      if (!results.length) return Response.json({ error: 'Not found' }, { status: 404, headers: CORS })
+      const current = results[0] as any
+      const body = (await request.json()) as any
+      const nextTaskType = body.taskType ?? current.task_type
+      const nextIntervalDays = body.intervalDays ?? current.interval_days
+      await env.DB.prepare('UPDATE care_schedules SET task_type = ?, interval_days = ? WHERE id = ?')
+        .bind(nextTaskType, nextIntervalDays, sid)
+        .run()
+      const after = await env.DB.prepare('SELECT * FROM care_schedules WHERE id = ?').bind(sid).all()
+      return Response.json(toSchedule(after.results[0]), { headers: CORS })
     }
 
     // GET /api/data/tasks/due?range=today|week

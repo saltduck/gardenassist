@@ -117,6 +117,20 @@ export async function addCareLog(input: Omit<CareLog, 'id' | 'createdAt'>): Prom
   }
 }
 
+export async function updateCareLog(
+  id: string,
+  input: Partial<Omit<CareLog, 'id' | 'plantId' | 'createdAt'>>
+): Promise<CareLog | undefined> {
+  try {
+    return await fetchJson<CareLog>(`/care-logs/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    })
+  } catch {
+    return local.updateCareLog(id, input)
+  }
+}
+
 export async function deleteCareLog(id: string): Promise<boolean> {
   try {
     await fetchJson(`/care-logs/${id}`, { method: 'DELETE' })
@@ -142,6 +156,20 @@ export async function addCareSchedule(input: Omit<CareSchedule, 'id' | 'createdA
     })
   } catch {
     return local.addCareSchedule(input)
+  }
+}
+
+export async function updateCareSchedule(
+  id: string,
+  input: Partial<Omit<CareSchedule, 'id' | 'plantId' | 'createdAt'>>
+): Promise<CareSchedule | undefined> {
+  try {
+    return await fetchJson<CareSchedule>(`/schedules/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    })
+  } catch {
+    return local.updateCareSchedule(id, input)
   }
 }
 

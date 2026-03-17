@@ -180,6 +180,25 @@ export function addCareLog(input: Omit<CareLog, 'id' | 'createdAt'>): CareLog {
   return log
 }
 
+export function updateCareLog(
+  id: string,
+  input: Partial<Omit<CareLog, 'id' | 'plantId' | 'createdAt'>>
+): CareLog | undefined {
+  const logs = loadCareLogs()
+  const idx = logs.findIndex((l) => l.id === id)
+  if (idx === -1) return undefined
+  const updated: CareLog = {
+    ...logs[idx],
+    ...input,
+    id: logs[idx].id,
+    plantId: logs[idx].plantId,
+    createdAt: logs[idx].createdAt,
+  }
+  logs[idx] = updated
+  saveCareLogs(logs)
+  return updated
+}
+
 export function deleteCareLog(id: string): boolean {
   const logs = loadCareLogs().filter((l) => l.id !== id)
   if (logs.length === loadCareLogs().length) return false
@@ -231,6 +250,25 @@ export function addCareSchedule(
   schedules.push(schedule)
   saveCareSchedules(schedules)
   return schedule
+}
+
+export function updateCareSchedule(
+  id: string,
+  input: Partial<Omit<CareSchedule, 'id' | 'plantId' | 'createdAt'>>
+): CareSchedule | undefined {
+  const schedules = loadCareSchedules()
+  const idx = schedules.findIndex((s) => s.id === id)
+  if (idx === -1) return undefined
+  const updated: CareSchedule = {
+    ...schedules[idx],
+    ...input,
+    id: schedules[idx].id,
+    plantId: schedules[idx].plantId,
+    createdAt: schedules[idx].createdAt,
+  }
+  schedules[idx] = updated
+  saveCareSchedules(schedules)
+  return updated
 }
 
 export function deleteCareSchedule(id: string): boolean {

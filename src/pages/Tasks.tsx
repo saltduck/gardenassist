@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { getDueTasks, addCareLog } from '../lib/storage-api'
+import { getDueTasks, addCareLog, deleteCareSchedule, updateCareSchedule } from '../lib/storage-api'
 import type { DueTask } from '../lib/storage-api'
 import { CARE_TASK_TYPES } from '../types/plant'
 
@@ -15,15 +15,20 @@ function formatDate(dateStr: string) {
 function TaskRow({
   task,
   onComplete,
+  onAfterChange,
 }: {
   task: DueTask
   onComplete: () => void
+  onAfterChange: () => void
 }) {
   const label = CARE_TASK_TYPES.find((t) => t.value === task.schedule.taskType)?.label ?? task.schedule.taskType
   const isOverdue = task.nextDue < new Date().toISOString().slice(0, 10)
+  const [editing, setEditing] = useState(false)
+  const [taskType, setTaskType] = useState(task.schedule.taskType)
+  const [intervalDays, setIntervalDays] = useState(String(task.schedule.intervalDays))
 
   return (
-    <li className="flex items-center justify-between gap-3 rounded-lg border border-stone-200 bg-white p-3">
+    <li className="rounded-lg border border-stone-200 bg-white p-3">
       <div className="min-w-0 flex-1">
         <Link
           to={`/plants/${task.plant.id}`}
@@ -39,13 +44,84 @@ function TaskRow({
           {isOverdue && '（已逾期）'}
         </span>
       </div>
-      <button
-        type="button"
-        onClick={onComplete}
-        className="shrink-0 rounded bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700"
-      >
-        完成
-      </button>
+      <div className="mt-2 flex flex-wrap gap-2 justify-end">
+        <button
+          type="button"
+          onClick={onComplete}
+          className="shrink-0 rounded bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700"
+        >
+          完成
+        </button>
+        <button
+          type="button"
+          onClick={() => setEditing((v) => !v)}
+          className="shrink-0 rounded border border-stone-300 px-3 py-1.5 text-sm font-medium text-stone-700 hover:bg-stone-100"
+        >
+          {editing ? '收起编辑' : '编辑任务'}
+        </button>
+        <button
+          type="button"
+          onClick={async () => {
+            if (!window.confirm('删除该任务（即删除这条养护计划周期）？')) return
+            await deleteCareSchedule(task.schedule.id)
+            onAfterChange()
+          }}
+          className="shrink-0 rounded border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50"
+        >
+          删除任务
+        </button>
+      </div>
+
+      {editing && (
+        <div className="mt-3 rounded-md border border-stone-200 bg-stone-50 p-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="block text-xs font-medium text-stone-600 mb-1">类型</label>
+              <select
+                value={taskType}
+                onChange={(e) => setTaskType(e.target.value as any)}
+                className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
+              >
+                {CARE_TASK_TYPES.map((t) => (
+                  <option key={t.value} value={t.value}>{t.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-stone-600 mb-1">间隔（天）</label>
+              <input
+                type="number"
+                min={1}
+                value={intervalDays}
+                onChange={(e) => setIntervalDays(e.target.value)}
+                className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
+              />
+            </div>
+          </div>
+          <div className="mt-3 flex gap-2 justify-end">
+            <button
+              type="button"
+              onClick={async () => {
+                const days = Number(intervalDays)
+                if (!Number.isFinite(days) || days < 1) return
+                await updateCareSchedule(task.schedule.id, { taskType, intervalDays: days })
+                setEditing(false)
+                onAfterChange()
+              }}
+              className="rounded bg-emerald-600 px-3 py-1.5 text-sm text-white hover:bg-emerald-700"
+            >
+              保存修改
+            </button>
+            <button
+              type="button"
+              onClick={() => { setTaskType(task.schedule.taskType); setIntervalDays(String(task.schedule.intervalDays)); setEditing(false) }}
+              className="rounded border border-stone-300 px-3 py-1.5 text-sm hover:bg-stone-100"
+            >
+              取消
+            </button>
+          </div>
+        </div>
+      )}
     </li>
   )
 }
@@ -92,6 +168,7 @@ export function Tasks() {
                 key={`${task.schedule.id}-${task.nextDue}`}
                 task={task}
                 onComplete={() => handleComplete(task)}
+                onAfterChange={refresh}
               />
             ))}
           </ul>
@@ -111,6 +188,7 @@ export function Tasks() {
                 key={`${task.schedule.id}-${task.nextDue}`}
                 task={task}
                 onComplete={() => handleComplete(task)}
+                onAfterChange={refresh}
               />
             ))}
           </ul>

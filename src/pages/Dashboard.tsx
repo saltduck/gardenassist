@@ -5,6 +5,8 @@ import { getLocalSnapshot } from '../lib/storage'
 import type { Plant } from '../types/plant'
 import { CARE_TASK_TYPES } from '../types/plant'
 
+const KEY_LAST_SYNC_AT = 'gardenassit_last_cloud_sync_at'
+
 function formatDateTime(iso: string) {
   return new Date(iso).toLocaleString('zh-CN', {
     month: 'short',
@@ -14,13 +16,34 @@ function formatDateTime(iso: string) {
   })
 }
 
+function safeMaxIso(a?: string, b?: string): string | undefined {
+  if (!a) return b
+  if (!b) return a
+  return a > b ? a : b
+}
+
+function getLastLocalUpdatedAt(): string | undefined {
+  const s = getLocalSnapshot()
+  let maxIso: string | undefined
+
+  for (const p of s.plants) maxIso = safeMaxIso(maxIso, p.updatedAt || p.createdAt)
+  for (const r of s.growthRecords) maxIso = safeMaxIso(maxIso, r.createdAt)
+  for (const l of s.careLogs) maxIso = safeMaxIso(maxIso, l.createdAt)
+  for (const c of s.careSchedules) maxIso = safeMaxIso(maxIso, c.createdAt)
+
+  return maxIso
+}
+
 export function Dashboard() {
   const [plants, setPlants] = useState<Plant[]>([])
   const [todayDue, setTodayDue] = useState(0)
   const [recentLogs, setRecentLogs] = useState<Array<{ log: { id: string; taskType: string; doneAt: string }; plant: Plant | undefined }>>([])
   const [syncStatus, setSyncStatus] = useState<'idle' | 'loading' | 'ok' | 'err'>('idle')
   const [syncMessage, setSyncMessage] = useState('')
-  const hasLocalData = getLocalSnapshot().plants.length > 0
+  const [lastSyncAt, setLastSyncAt] = useState<string>(() => localStorage.getItem(KEY_LAST_SYNC_AT) || '')
+  const hasLocalPlants = getLocalSnapshot().plants.length > 0
+  const lastLocalUpdatedAt = getLastLocalUpdatedAt()
+  const hasUnsyncedLocalData = hasLocalPlants && (!lastSyncAt || (lastLocalUpdatedAt ? lastLocalUpdatedAt > lastSyncAt : true))
 
   useEffect(() => {
     getAllPlants().then(setPlants)
@@ -34,7 +57,12 @@ export function Dashboard() {
     const result = await syncLocalToD1()
     if (result.success && result.imported) {
       setSyncStatus('ok')
-      setSyncMessage(`已上传：${result.imported.plants} 株植物、${result.imported.growthRecords} 条生长记录、${result.imported.careLogs} 条养护记录、${result.imported.careSchedules} 条养护计划。刷新页面后将从云端加载。`)
+      const now = new Date().toISOString()
+      localStorage.setItem(KEY_LAST_SYNC_AT, now)
+      setLastSyncAt(now)
+      setSyncMessage(
+        `已上传：${result.imported.plants} 株植物、${result.imported.growthRecords} 条生长记录、${result.imported.careLogs} 条养护记录、${result.imported.careSchedules} 条养护计划。`
+      )
       getAllPlants().then(setPlants)
       getTodayDueCount().then(setTodayDue)
       getRecentCareLogs(5).then(setRecentLogs)
@@ -75,7 +103,7 @@ export function Dashboard() {
         </section>
       </div>
 
-      {hasLocalData && (
+      {hasUnsyncedLocalData && (
         <section className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-4">
           <h2 className="text-lg font-medium text-amber-800 mb-1">上传本地数据到云端</h2>
           <p className="text-sm text-amber-700 mb-3">
