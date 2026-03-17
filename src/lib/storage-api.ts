@@ -217,7 +217,15 @@ export async function syncLocalToD1(): Promise<{
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(snapshot),
     })
-    const data = (await r.json()) as { success?: boolean; imported?: { plants: number; growthRecords: number; careLogs: number; careSchedules: number }; error?: string }
+    const text = await r.text()
+    if (text.trimStart().startsWith('<')) {
+      const url = typeof window !== 'undefined' ? window.location.origin + `${API_BASE}/import` : `${API_BASE}/import`
+      return {
+        success: false,
+        error: `请求返回了页面而非接口（状态 ${r.status}）。请求地址：${url}。请确认：1) 若用 Git 关联部署，仓库根目录需包含 functions 文件夹且已提交；2) 若用「直接上传」，请在项目根目录执行 npm run deploy（不要只上传 dist）；3) 在 Dashboard → Pages → 项目 → Settings → Functions 中确认 D1 绑定名为 DB。`,
+      }
+    }
+    const data = JSON.parse(text) as { success?: boolean; imported?: { plants: number; growthRecords: number; careLogs: number; careSchedules: number }; error?: string }
     if (!r.ok) throw new Error(data.error || r.statusText)
     return { success: true, imported: data.imported }
   } catch (e) {

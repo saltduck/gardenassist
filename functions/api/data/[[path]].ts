@@ -60,16 +60,17 @@ function addDays(dateStr: string, days: number): string {
 }
 
 export const onRequest = async (context: Context) => {
-  const { request, env, params } = context
-  const path = (params.path ?? '').replace(/\/$/, '')
-  const method = request.method
-  const url = new URL(request.url)
-
-  if (!env.DB) {
-    return Response.json({ error: 'D1 未绑定' }, { status: 503, headers: CORS })
-  }
-
   try {
+    const { request, env, params } = context
+    const path = ((params && params.path) ?? '').replace(/\/$/, '')
+    const method = request.method
+    const url = new URL(request.url)
+
+    if (!env.DB) {
+      return Response.json({ error: 'D1 未绑定' }, { status: 503, headers: CORS })
+    }
+
+    try {
     // GET /api/data/plants
     if (path === 'plants' && method === 'GET') {
       const { results } = await env.DB.prepare('SELECT * FROM plants ORDER BY created_at DESC').all()
@@ -78,7 +79,13 @@ export const onRequest = async (context: Context) => {
 
     // POST /api/data/import - 批量导入（用于从 localStorage 同步到 D1）
     if (path === 'import' && method === 'POST') {
-      const body = (await request.json()) as any
+      let body: any
+      try {
+        body = await request.json()
+      } catch {
+        return Response.json({ error: '请求体不是合法 JSON' }, { status: 400, headers: CORS })
+      }
+      if (body == null) body = {}
       const plants = Array.isArray(body.plants) ? body.plants : []
       const growthRecords = Array.isArray(body.growthRecords) ? body.growthRecords : []
       const careLogs = Array.isArray(body.careLogs) ? body.careLogs : []
@@ -416,9 +423,15 @@ export const onRequest = async (context: Context) => {
     }
 
     return Response.json({ error: 'Not found' }, { status: 404, headers: CORS })
+    } catch (e) {
+      return Response.json(
+        { error: e instanceof Error ? e.message : 'Server error' },
+        { status: 500, headers: CORS }
+      )
+    }
   } catch (e) {
     return Response.json(
-      { error: e instanceof Error ? e.message : 'Server error' },
+      { error: e instanceof Error ? e.message : 'Worker error' },
       { status: 500, headers: CORS }
     )
   }
