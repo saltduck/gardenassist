@@ -1,10 +1,15 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { getAllPlants } from '../lib/storage'
+import { getAllPlants } from '../lib/storage-api'
+import type { Plant } from '../types/plant'
 
 export function PlantList() {
-  const plants = useMemo(() => getAllPlants(), [])
+  const [plants, setPlants] = useState<Plant[]>([])
   const [filter, setFilter] = useState('')
+
+  useEffect(() => {
+    getAllPlants().then(setPlants)
+  }, [])
 
   const filtered = useMemo(() => {
     if (!filter.trim()) return plants

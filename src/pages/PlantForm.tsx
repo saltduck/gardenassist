@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom'
-import { getPlantById, createPlant, updatePlant } from '../lib/storage'
+import { getPlantById, createPlant, updatePlant } from '../lib/storage-api'
 import { identifyPlant } from '../lib/api'
 
 const emptyForm = {
@@ -24,25 +24,26 @@ export function PlantForm() {
 
   useEffect(() => {
     if (!id) return
-    const plant = getPlantById(id)
-    if (plant) {
-      setForm({
-        name: plant.name,
-        variety: plant.variety,
-        location: plant.location,
-        plantedAt: plant.plantedAt.slice(0, 10),
-        photoUrl: plant.photoUrl ?? '',
-        notes: plant.notes ?? '',
-      })
-    }
+    getPlantById(id).then((plant) => {
+      if (plant) {
+        setForm({
+          name: plant.name,
+          variety: plant.variety,
+          location: plant.location,
+          plantedAt: plant.plantedAt.slice(0, 10),
+          photoUrl: plant.photoUrl ?? '',
+          notes: plant.notes ?? '',
+        })
+      }
+    })
   }, [id])
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     try {
       if (isEdit && id) {
-        updatePlant(id, {
+        await updatePlant(id, {
           ...form,
           plantedAt: new Date(form.plantedAt).toISOString(),
           photoUrl: form.photoUrl || undefined,
@@ -50,7 +51,7 @@ export function PlantForm() {
         })
         navigate(`/plants/${id}`)
       } else {
-        const created = createPlant({
+        const created = await createPlant({
           ...form,
           plantedAt: new Date(form.plantedAt).toISOString(),
           photoUrl: form.photoUrl || undefined,

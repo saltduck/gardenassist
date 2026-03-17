@@ -13,9 +13,10 @@ import {
   deleteCareLog,
   deleteCareSchedule,
   updatePlant,
-} from '../lib/storage'
+} from '../lib/storage-api'
 import { getAdvice, getCarePlan } from '../lib/api'
 import type { CarePlanItem } from '../lib/api'
+import type { TimelineItem } from '../lib/storage-api'
 import { CARE_TASK_TYPES } from '../types/plant'
 import type { Plant, GrowthRecord, CareLog, CareSchedule } from '../types/plant'
 import type { CareTaskType } from '../types/plant'
@@ -45,7 +46,7 @@ export function PlantDetail() {
   const [plant, setPlant] = useState<Plant | null>(null)
   const [growthRecords, setGrowthRecords] = useState<GrowthRecord[]>([])
   const [careLogs, setCareLogs] = useState<CareLog[]>([])
-  const [timeline, setTimeline] = useState<ReturnType<typeof getTimelineByPlantId>>([])
+  const [timeline, setTimeline] = useState<TimelineItem[]>([])
   const [careSchedules, setCareSchedules] = useState<CareSchedule[]>([])
   const [showGrowthForm, setShowGrowthForm] = useState(false)
   const [showCareForm, setShowCareForm] = useState(false)
@@ -59,23 +60,31 @@ export function PlantDetail() {
   const [carePlanSelected, setCarePlanSelected] = useState<Set<number>>(new Set())
   const [carePlanError, setCarePlanError] = useState<string | null>(null)
 
-  const refresh = () => {
+  const refresh = async () => {
     if (!id) return
-    setPlant(getPlantById(id) ?? null)
-    setGrowthRecords(getGrowthRecordsByPlantId(id))
-    setCareLogs(getCareLogsByPlantId(id))
-    setTimeline(getTimelineByPlantId(id))
-    setCareSchedules(getCareSchedulesByPlantId(id))
+    const [p, growth, care, tl, sched] = await Promise.all([
+      getPlantById(id),
+      getGrowthRecordsByPlantId(id),
+      getCareLogsByPlantId(id),
+      getTimelineByPlantId(id),
+      getCareSchedulesByPlantId(id),
+    ])
+    setPlant(p ?? null)
+    setGrowthRecords(growth)
+    setCareLogs(care)
+    setTimeline(tl)
+    setCareSchedules(sched)
   }
 
   useEffect(() => {
     refresh()
   }, [id])
 
-  const handleDeletePlant = () => {
+  const handleDeletePlant = async () => {
     if (!id || !plant) return
     if (!window.confirm(`确定要删除「${plant.name}」吗？相关生长与养护记录也会被删除。`)) return
-    if (deletePlant(id)) navigate('/plants')
+    const ok = await deletePlant(id)
+    if (ok) navigate('/plants')
   }
 
   if (plant === null && id) {
@@ -204,8 +213,8 @@ export function PlantDetail() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
-                      updatePlant(plant.id, { notes: (plant.notes ? plant.notes + '\n\n' : '') + adviceResult })
+                    onClick={async () => {
+                      await updatePlant(plant.id, { notes: (plant.notes ? plant.notes + '\n\n' : '') + adviceResult })
                       refresh()
                       setAdviceResult(null)
                     }}
@@ -272,13 +281,14 @@ export function PlantDetail() {
                     <div className="flex gap-2">
                       <button
                         type="button"
-                        onClick={() => {
+                        onClick={async () => {
                           const validTypes: CareTaskType[] = ['watering', 'fertilizing', 'pruning', 'repotting', 'pest_control', 'other']
-                          carePlanItems.forEach((item, i) => {
-                            if (!carePlanSelected.has(i)) return
+                          for (let i = 0; i < carePlanItems.length; i++) {
+                            if (!carePlanSelected.has(i)) continue
+                            const item = carePlanItems[i]
                             const taskType = validTypes.includes(item.taskType as CareTaskType) ? (item.taskType as CareTaskType) : 'other'
-                            addCareSchedule({ plantId: plant.id, taskType, intervalDays: item.intervalDays })
-                          })
+                            await addCareSchedule({ plantId: plant.id, taskType, intervalDays: item.intervalDays })
+                          }
                           setCarePlanItems(null)
                           setCarePlanSelected(new Set())
                           refresh()
@@ -386,9 +396,9 @@ export function PlantDetail() {
                 <span className="text-stone-600 text-sm">每 {s.intervalDays} 天</span>
                 <button
                   type="button"
-                  onClick={() => {
+                  onClick={async () => {
                     if (window.confirm('删除这条养护计划？')) {
-                      deleteCareSchedule(s.id)
+                      await deleteCareSchedule(s.id)
                       refresh()
                     }
                   }}
@@ -448,9 +458,9 @@ export function PlantDetail() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => {
+                  onClick={async () => {
                     if (window.confirm('删除这条生长记录？')) {
-                      deleteGrowthRecord(r.id)
+                      await deleteGrowthRecord(r.id)
                       refresh()
                     }
                   }}
@@ -504,9 +514,9 @@ export function PlantDetail() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => {
+                  onClick={async () => {
                     if (window.confirm('删除这条养护记录？')) {
-                      deleteCareLog(log.id)
+                      await deleteCareLog(log.id)
                       refresh()
                     }
                   }}
@@ -539,9 +549,9 @@ function GrowthForm({
   const [photoUrl, setPhotoUrl] = useState('')
   const [notes, setNotes] = useState('')
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    addGrowthRecord({
+    await addGrowthRecord({
       plantId,
       date: new Date(date).toISOString().slice(0, 10),
       height: height ? Number(height) : undefined,
@@ -647,9 +657,9 @@ function CareForm({
   const [doneAt, setDoneAt] = useState(new Date().toISOString().slice(0, 16))
   const [notes, setNotes] = useState('')
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    addCareLog({
+    await addCareLog({
       plantId,
       taskType,
       doneAt: new Date(doneAt).toISOString(),
@@ -719,11 +729,11 @@ function ScheduleForm({
   const [taskType, setTaskType] = useState<CareSchedule['taskType']>('watering')
   const [intervalDays, setIntervalDays] = useState('7')
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     const days = Number(intervalDays)
     if (days < 1) return
-    addCareSchedule({ plantId, taskType, intervalDays: days })
+    await addCareSchedule({ plantId, taskType, intervalDays: days })
     onSuccess()
   }
 

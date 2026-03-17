@@ -1,5 +1,7 @@
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { getAllPlants, getTodayDueCount, getRecentCareLogs } from '../lib/storage'
+import { getAllPlants, getTodayDueCount, getRecentCareLogs } from '../lib/storage-api'
+import type { Plant } from '../types/plant'
 import { CARE_TASK_TYPES } from '../types/plant'
 
 function formatDateTime(iso: string) {
@@ -12,9 +14,15 @@ function formatDateTime(iso: string) {
 }
 
 export function Dashboard() {
-  const plants = getAllPlants()
-  const todayDue = getTodayDueCount()
-  const recentLogs = getRecentCareLogs(5)
+  const [plants, setPlants] = useState<Plant[]>([])
+  const [todayDue, setTodayDue] = useState(0)
+  const [recentLogs, setRecentLogs] = useState<Array<{ log: { id: string; taskType: string; doneAt: string }; plant: Plant | undefined }>>([])
+
+  useEffect(() => {
+    getAllPlants().then(setPlants)
+    getTodayDueCount().then(setTodayDue)
+    getRecentCareLogs(5).then(setRecentLogs)
+  }, [])
 
   return (
     <div>

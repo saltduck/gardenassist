@@ -1,12 +1,12 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import {
   getDueTasksForDate,
   getCareLogsForDate,
-  getPlantById,
-} from '../lib/storage'
-import type { DueTask } from '../lib/storage'
-import type { CareLog } from '../types/plant'
+  getAllPlants,
+} from '../lib/storage-api'
+import type { DueTask } from '../lib/storage-api'
+import type { CareLog, Plant } from '../types/plant'
 import { CARE_TASK_TYPES } from '../types/plant'
 
 function toDateOnly(d: Date): string {
@@ -33,21 +33,34 @@ export function Calendar() {
   const [year, setYear] = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth())
   const [selectedDate, setSelectedDate] = useState<string | null>(toDateOnly(now))
+  const [plants, setPlants] = useState<Plant[]>([])
+  const [dueTasksByDate, setDueTasksByDate] = useState<Record<string, DueTask[]>>({})
+  const [logsByDate, setLogsByDate] = useState<Record<string, CareLog[]>>({})
 
   const grid = useMemo(() => getMonthGrid(year, month), [year, month])
-  const dueTasksByDate = useMemo(() => {
-    const map: Record<string, DueTask[]> = {}
-    grid.forEach((d) => {
-      if (d) map[d] = getDueTasksForDate(d)
+
+  useEffect(() => {
+    getAllPlants().then(setPlants)
+  }, [])
+
+  useEffect(() => {
+    const days = grid.filter((d): d is string => d !== null)
+    if (days.length === 0) return
+    Promise.all(
+      days.map(async (d) => {
+        const [due, logs] = await Promise.all([getDueTasksForDate(d), getCareLogsForDate(d)])
+        return { d, due, logs }
+      })
+    ).then((results) => {
+      const dueMap: Record<string, DueTask[]> = {}
+      const logsMap: Record<string, CareLog[]> = {}
+      results.forEach(({ d, due, logs }) => {
+        dueMap[d] = due
+        logsMap[d] = logs
+      })
+      setDueTasksByDate(dueMap)
+      setLogsByDate(logsMap)
     })
-    return map
-  }, [grid])
-  const logsByDate = useMemo(() => {
-    const map: Record<string, CareLog[]> = {}
-    grid.forEach((d) => {
-      if (d) map[d] = getCareLogsForDate(d)
-    })
-    return map
   }, [grid])
 
   const prevMonth = () => {
@@ -160,11 +173,11 @@ export function Calendar() {
             <div className="space-y-4">
               <div>
                 <h3 className="text-sm font-medium text-amber-700 mb-2">到期任务</h3>
-                {getDueTasksForDate(selectedDate).length === 0 ? (
+                {(dueTasksByDate[selectedDate] ?? []).length === 0 ? (
                   <p className="text-stone-500 text-sm">无</p>
                 ) : (
                   <ul className="space-y-1">
-                    {getDueTasksForDate(selectedDate).map((t) => (
+                    {(dueTasksByDate[selectedDate] ?? []).map((t) => (
                       <li key={t.schedule.id}>
                         <Link
                           to={`/plants/${t.plant.id}`}
@@ -182,12 +195,12 @@ export function Calendar() {
               </div>
               <div>
                 <h3 className="text-sm font-medium text-emerald-700 mb-2">已完成</h3>
-                {getCareLogsForDate(selectedDate).length === 0 ? (
+                {(logsByDate[selectedDate] ?? []).length === 0 ? (
                   <p className="text-stone-500 text-sm">无</p>
                 ) : (
                   <ul className="space-y-1">
-                    {getCareLogsForDate(selectedDate).map((log) => {
-                      const plant = getPlantById(log.plantId)
+                    {(logsByDate[selectedDate] ?? []).map((log) => {
+                      const plant = plants.find((p) => p.id === log.plantId)
                       return (
                         <li key={log.id} className="text-sm">
                           <Link

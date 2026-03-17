@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { getDueTasks, addCareLog } from '../lib/storage'
-import type { DueTask } from '../lib/storage'
+import { getDueTasks, addCareLog } from '../lib/storage-api'
+import type { DueTask } from '../lib/storage-api'
 import { CARE_TASK_TYPES } from '../types/plant'
 
 function formatDate(dateStr: string) {
@@ -54,19 +54,19 @@ export function Tasks() {
   const [todayTasks, setTodayTasks] = useState<DueTask[]>([])
   const [weekTasks, setWeekTasks] = useState<DueTask[]>([])
 
-  const refresh = () => {
-    setTodayTasks(getDueTasks('today'))
-    const week = getDueTasks('week')
-    const today = new Date().toISOString().slice(0, 10)
-    setWeekTasks(week.filter((t) => t.nextDue > today))
+  const refresh = async () => {
+    const [today, week] = await Promise.all([getDueTasks('today'), getDueTasks('week')])
+    const todayStr = new Date().toISOString().slice(0, 10)
+    setTodayTasks(today)
+    setWeekTasks(week.filter((t) => t.nextDue > todayStr))
   }
 
   useEffect(() => {
     refresh()
   }, [])
 
-  const handleComplete = (task: DueTask) => {
-    addCareLog({
+  const handleComplete = async (task: DueTask) => {
+    await addCareLog({
       plantId: task.plant.id,
       taskType: task.schedule.taskType,
       doneAt: new Date().toISOString(),
