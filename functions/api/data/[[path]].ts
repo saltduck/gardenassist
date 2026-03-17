@@ -83,6 +83,7 @@ function toSchedule(row: any) {
     intervalDays: row.interval_days,
     startDate: row.start_date ?? undefined,
     endDate: row.end_date ?? undefined,
+    note: row.note ?? undefined,
     createdAt: row.created_at,
   }
 }
@@ -344,7 +345,7 @@ export const onRequest = async (context: Context) => {
       const sid = crypto.randomUUID()
       const now = new Date().toISOString()
       await env.DB.prepare(
-        'INSERT INTO care_schedules (id, plant_id, task_type, interval_days, start_date, end_date, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO care_schedules (id, plant_id, task_type, interval_days, start_date, end_date, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
       )
         .bind(
           sid,
@@ -353,6 +354,7 @@ export const onRequest = async (context: Context) => {
           body.intervalDays ?? 7,
           body.startDate ?? null,
           body.endDate ?? null,
+          body.note ?? null,
           now
         )
         .run()
@@ -419,8 +421,9 @@ export const onRequest = async (context: Context) => {
       const nextIntervalDays = body.intervalDays ?? current.interval_days
       const nextStartDate = body.startDate !== undefined ? body.startDate : current.start_date
       const nextEndDate = body.endDate !== undefined ? body.endDate : current.end_date
-      await env.DB.prepare('UPDATE care_schedules SET task_type = ?, interval_days = ?, start_date = ?, end_date = ? WHERE id = ?')
-        .bind(nextTaskType, nextIntervalDays, nextStartDate ?? null, nextEndDate ?? null, sid)
+      const nextNote = body.note !== undefined ? body.note : current.note
+      await env.DB.prepare('UPDATE care_schedules SET task_type = ?, interval_days = ?, start_date = ?, end_date = ?, note = ? WHERE id = ?')
+        .bind(nextTaskType, nextIntervalDays, nextStartDate ?? null, nextEndDate ?? null, nextNote ?? null, sid)
         .run()
       const after = await env.DB.prepare('SELECT * FROM care_schedules WHERE id = ?').bind(sid).all()
       return Response.json(toSchedule(after.results[0]), { headers: CORS })

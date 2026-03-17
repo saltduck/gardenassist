@@ -28,6 +28,7 @@ function TaskRow({
   const [intervalDays, setIntervalDays] = useState(String(task.schedule.intervalDays))
   const [startDate, setStartDate] = useState(task.schedule.startDate ?? '')
   const [endDate, setEndDate] = useState(task.schedule.endDate ?? '')
+  const [note, setNote] = useState(task.schedule.note ?? '')
 
   return (
     <li className="rounded-lg border border-stone-200 bg-white p-3">
@@ -41,6 +42,7 @@ function TaskRow({
         <span className="ml-2 rounded bg-amber-100 px-2 py-0.5 text-sm text-amber-700">
           {label}
         </span>
+        {task.schedule.note && <span className="ml-2 text-xs text-stone-500">· {task.schedule.note}</span>}
         <span className={`ml-2 text-sm ${isOverdue ? 'text-red-600' : 'text-stone-500'}`}>
           {formatDate(task.nextDue)}
           {isOverdue && '（已逾期）'}
@@ -120,6 +122,16 @@ function TaskRow({
               />
             </div>
           </div>
+          <div className="mt-3">
+            <label className="block text-xs font-medium text-stone-600 mb-1">备注（可选）</label>
+            <textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              rows={2}
+              className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
+              placeholder="例如：夏天避开中午浇水；施肥先浇透水等"
+            />
+          </div>
           <div className="mt-3 flex gap-2 justify-end">
             <button
               type="button"
@@ -131,6 +143,7 @@ function TaskRow({
                   intervalDays: days,
                   startDate: startDate || undefined,
                   endDate: endDate || undefined,
+                  note: note || undefined,
                 })
                 setEditing(false)
                 onAfterChange()
@@ -146,6 +159,7 @@ function TaskRow({
                 setIntervalDays(String(task.schedule.intervalDays))
                 setStartDate(task.schedule.startDate ?? '')
                 setEndDate(task.schedule.endDate ?? '')
+                setNote(task.schedule.note ?? '')
                 setEditing(false)
               }}
               className="rounded border border-stone-300 px-3 py-1.5 text-sm hover:bg-stone-100"

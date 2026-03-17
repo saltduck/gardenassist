@@ -59,5 +59,7 @@ export interface CareSchedule {
   startDate?: string
   /** 可选：截止日期（YYYY-MM-DD）。为空则长期有效 */
   endDate?: string
+  /** 可选：备注/注意事项（用于提醒） */
+  note?: string
   createdAt: string
 }

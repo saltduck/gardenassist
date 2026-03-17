@@ -70,6 +70,7 @@ export function PlantDetail() {
   const [editingScheduleIntervalDays, setEditingScheduleIntervalDays] = useState('7')
   const [editingScheduleStartDate, setEditingScheduleStartDate] = useState('')
   const [editingScheduleEndDate, setEditingScheduleEndDate] = useState('')
+  const [editingScheduleNote, setEditingScheduleNote] = useState('')
   const [adviceQuestion, setAdviceQuestion] = useState('')
   const [adviceLoading, setAdviceLoading] = useState(false)
   const [adviceResult, setAdviceResult] = useState<string | null>(null)
@@ -316,7 +317,7 @@ export function PlantDetail() {
                             if (!carePlanSelected.has(i)) continue
                             const item = carePlanItems[i]
                             const taskType = validTypes.includes(item.taskType as CareTaskType) ? (item.taskType as CareTaskType) : 'other'
-                            await addCareSchedule({ plantId: plant.id, taskType, intervalDays: item.intervalDays })
+                            await addCareSchedule({ plantId: plant.id, taskType, intervalDays: item.intervalDays, note: item.note })
                           }
                           setCarePlanItems(null)
                           setCarePlanSelected(new Set())
@@ -465,6 +466,16 @@ export function PlantDetail() {
                         />
                       </div>
                     </div>
+                    <div className="mt-3">
+                      <label className="block text-xs font-medium text-stone-600 mb-1">备注（可选）</label>
+                      <textarea
+                        value={editingScheduleNote}
+                        onChange={(e) => setEditingScheduleNote(e.target.value)}
+                        rows={2}
+                        className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
+                        placeholder="例如：夏天避开中午浇水；施肥先浇透水等"
+                      />
+                    </div>
                     <div className="mt-3 flex gap-2 justify-end">
                       <button
                         type="button"
@@ -476,6 +487,7 @@ export function PlantDetail() {
                             intervalDays: days,
                             startDate: editingScheduleStartDate || undefined,
                             endDate: editingScheduleEndDate || undefined,
+                            note: editingScheduleNote || undefined,
                           })
                           setEditingScheduleId(null)
                           refresh()
@@ -499,6 +511,7 @@ export function PlantDetail() {
                       {CARE_TASK_TYPES.find((t) => t.value === s.taskType)?.label ?? s.taskType}
                     </span>
                     <span className="text-stone-600 text-sm">每 {s.intervalDays} 天</span>
+                    {s.note && <span className="text-stone-500 text-xs">· {s.note}</span>}
                     {(s.startDate || s.endDate) && (
                       <span className="text-stone-500 text-xs">
                         {s.startDate ? `开始 ${formatDateOnlyFromDate(s.startDate)}` : '开始 即刻'}
@@ -514,6 +527,7 @@ export function PlantDetail() {
                           setEditingScheduleIntervalDays(String(s.intervalDays))
                           setEditingScheduleStartDate(s.startDate ?? '')
                           setEditingScheduleEndDate(s.endDate ?? '')
+                          setEditingScheduleNote(s.note ?? '')
                         }}
                         className="text-stone-600 text-sm hover:underline"
                       >
@@ -936,6 +950,7 @@ function ScheduleForm({
   const [intervalDays, setIntervalDays] = useState('7')
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
+  const [note, setNote] = useState('')
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -947,6 +962,7 @@ function ScheduleForm({
       intervalDays: days,
       startDate: startDate || undefined,
       endDate: endDate || undefined,
+      note: note || undefined,
     })
     onSuccess()
   }
@@ -996,6 +1012,16 @@ function ScheduleForm({
             className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
           />
         </div>
+      </div>
+      <div>
+        <label className="block text-xs font-medium text-stone-600 mb-1">备注（可选）</label>
+        <textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          rows={2}
+          className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
+          placeholder="例如：夏天避开中午浇水；施肥先浇透水等"
+        />
       </div>
       <div className="flex gap-2">
         <button
