@@ -1,4 +1,6 @@
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { getMe, logout, type AuthUser } from '../lib/auth-api'
 
 const links = [
   { to: '/', label: '仪表盘' },
@@ -11,6 +13,27 @@ const links = [
 
 export function Nav() {
   const location = useLocation()
+  const navigate = useNavigate()
+  const [user, setUser] = useState<AuthUser | null>(null)
+
+  useEffect(() => {
+    ;(async () => {
+      try {
+        const me = await getMe()
+        setUser(me)
+      } catch {
+        setUser(null)
+      }
+    })()
+  }, [])
+
+  async function handleLogout() {
+    try {
+      await logout()
+    } finally {
+      navigate('/login', { replace: true })
+    }
+  }
 
   return (
     <nav className="bg-emerald-800 text-white shadow">
@@ -32,6 +55,20 @@ export function Nav() {
               {label}
             </Link>
           ))}
+          <div className="flex-1" />
+          {user && (
+            <div className="flex items-center gap-3 text-xs text-emerald-100">
+              <span className="truncate max-w-[140px]" title={user.email}>
+                {user.email}
+              </span>
+              <button
+                onClick={handleLogout}
+                className="px-2 py-1 rounded bg-emerald-700 hover:bg-emerald-600 text-xs"
+              >
+                退出
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </nav>

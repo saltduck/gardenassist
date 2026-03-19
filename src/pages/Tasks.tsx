@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom'
 import { getDueTasks, addCareLog, deleteCareSchedule, updateCareSchedule } from '../lib/storage-api'
 import type { DueTask } from '../lib/storage-api'
 import { CARE_TASK_TYPES } from '../types/plant'
+import { MarkdownView } from '../components/MarkdownView'
+import { MarkdownTextarea } from '../components/MarkdownTextarea'
 
 function formatDate(dateStr: string) {
   return new Date(dateStr + 'T12:00:00').toLocaleDateString('zh-CN', {
@@ -42,7 +44,12 @@ function TaskRow({
         <span className="ml-2 rounded bg-amber-100 px-2 py-0.5 text-sm text-amber-700">
           {label}
         </span>
-        {task.schedule.note && <span className="ml-2 text-xs text-stone-500">· {task.schedule.note}</span>}
+        {task.schedule.note && (
+          <div className="ml-2 text-xs text-stone-500">
+            <span>· </span>
+            <MarkdownView value={task.schedule.note} />
+          </div>
+        )}
         <span className={`ml-2 text-sm ${isOverdue ? 'text-red-600' : 'text-stone-500'}`}>
           {formatDate(task.nextDue)}
           {isOverdue && '（已逾期）'}
@@ -124,12 +131,12 @@ function TaskRow({
           </div>
           <div className="mt-3">
             <label className="block text-xs font-medium text-stone-600 mb-1">备注（可选）</label>
-            <textarea
+            <MarkdownTextarea
               value={note}
-              onChange={(e) => setNote(e.target.value)}
+              onChange={setNote}
               rows={2}
-              className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
               placeholder="例如：夏天避开中午浇水；施肥先浇透水等"
+              textareaClassName="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
             />
           </div>
           <div className="mt-3 flex gap-2 justify-end">

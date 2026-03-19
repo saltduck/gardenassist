@@ -2,6 +2,9 @@ import { useRef, useState, useEffect } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom'
 import { getPlantById, createPlant, updatePlant } from '../lib/storage-api'
 import { identifyPlant } from '../lib/api'
+import { uploadPhoto } from '../lib/upload-api'
+import { compressImage } from '../lib/compress-image'
+import { MarkdownTextarea } from '../components/MarkdownTextarea'
 
 const emptyForm = {
   name: '',
@@ -20,7 +23,10 @@ export function PlantForm() {
   const [loading, setLoading] = useState(false)
   const [identifyLoading, setIdentifyLoading] = useState(false)
   const [identifyError, setIdentifyError] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const photoInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (!id) return
@@ -46,16 +52,16 @@ export function PlantForm() {
         await updatePlant(id, {
           ...form,
           plantedAt: new Date(form.plantedAt).toISOString(),
-          photoUrl: form.photoUrl || undefined,
-          notes: form.notes || undefined,
+          photoUrl: form.photoUrl,
+          notes: form.notes,
         })
         navigate(`/plants/${id}`)
       } else {
         const created = await createPlant({
           ...form,
           plantedAt: new Date(form.plantedAt).toISOString(),
-          photoUrl: form.photoUrl || undefined,
-          notes: form.notes || undefined,
+          photoUrl: form.photoUrl,
+          notes: form.notes,
         })
         navigate(`/plants/${created.id}`)
       }
@@ -97,18 +103,23 @@ export function PlantForm() {
             className="hidden"
             onChange={async (e) => {
               const file = e.target.files?.[0]
-              if (!file || file.size > 4 * 1024 * 1024) {
-                setIdentifyError(file && file.size > 4 * 1024 * 1024 ? '图片请小于 4MB' : '')
+              if (!file || file.size > 30 * 1024 * 1024) {
+                setIdentifyError(file && file.size > 30 * 1024 * 1024 ? '图片请小于 30MB' : '')
                 return
               }
               setIdentifyError(null)
               setIdentifyLoading(true)
               try {
-                const res = await identifyPlant(file)
+                const toSend = file.size > 1024 * 1024 ? await compressImage(file, 1024 * 1024) : file
+                const [res, up] = await Promise.all([
+                  identifyPlant(toSend),
+                  uploadPhoto(toSend).then((r) => r.url).catch(() => ''),
+                ])
                 setForm((f) => ({
                   ...f,
                   name: res.name ?? f.name,
                   variety: res.variety ?? f.variety,
+                  photoUrl: up || f.photoUrl,
                 }))
               } catch (err) {
                 setIdentifyError(err instanceof Error ? err.message : '识别失败')
@@ -167,29 +178,63 @@ export function PlantForm() {
           />
         </div>
         <div>
-          <label htmlFor="photoUrl" className="block text-sm font-medium text-stone-700 mb-1">
-            照片 URL
-          </label>
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <label htmlFor="photoUrl" className="block text-sm font-medium text-stone-700">
+              照片
+            </label>
+            <button
+              type="button"
+              disabled={uploading}
+              onClick={() => photoInputRef.current?.click()}
+              className="text-sm text-emerald-600 hover:underline disabled:opacity-50"
+            >
+              {uploading ? '上传中…' : '📷 上传照片'}
+            </button>
+          </div>
+          <input
+            ref={photoInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            className="hidden"
+            onChange={async (e) => {
+              const file = e.target.files?.[0]
+              if (!file) return
+              setUploadError(null)
+              setUploading(true)
+              try {
+                const { url } = await uploadPhoto(file)
+                setForm((f) => ({ ...f, photoUrl: url }))
+              } catch (err) {
+                setUploadError(err instanceof Error ? err.message : '上传失败')
+              } finally {
+                setUploading(false)
+                e.target.value = ''
+              }
+            }}
+          />
           <input
             id="photoUrl"
-            type="url"
+            type="text"
             value={form.photoUrl}
-            onChange={(e) => setForm((f) => ({ ...f, photoUrl: e.target.value }))}
-            className="w-full rounded-md border border-stone-300 px-3 py-2 text-stone-800 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-            placeholder="https://..."
+            onChange={(e) => {
+              setForm((f) => ({ ...f, photoUrl: e.target.value }))
+              setUploadError(null)
+            }}
+            className="w-full rounded-md border border-stone-300 px-3 py-2 text-stone-800 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 mt-1"
+            placeholder="上传或粘贴图片链接"
           />
+          {uploadError && <p className="mt-1 text-sm text-red-600">{uploadError}</p>}
         </div>
         <div>
           <label htmlFor="notes" className="block text-sm font-medium text-stone-700 mb-1">
             备注
           </label>
-          <textarea
-            id="notes"
-            rows={3}
+          <MarkdownTextarea
             value={form.notes}
-            onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-            className="w-full rounded-md border border-stone-300 px-3 py-2 text-stone-800 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            onChange={(next) => setForm((f) => ({ ...f, notes: next }))}
+            rows={3}
             placeholder="养护习惯、注意事项等"
+            textareaClassName="w-full rounded-md border border-stone-300 px-3 py-2 text-stone-800 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
           />
         </div>
         <div className="flex gap-2 pt-2">

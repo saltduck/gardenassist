@@ -4,6 +4,7 @@ const API_BASE = '/api/data'
 
 async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
   const r = await fetch(`${API_BASE}${path}`, {
+    credentials: 'include',
     ...options,
     headers: { 'Content-Type': 'application/json', ...options?.headers },
   })

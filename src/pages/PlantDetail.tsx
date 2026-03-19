@@ -22,8 +22,11 @@ import type { TimelineItem } from '../types/data'
 import { CARE_TASK_TYPES } from '../types/plant'
 import type { Plant, GrowthRecord, CareLog, CareSchedule } from '../types/plant'
 import type { CareTaskType } from '../types/plant'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { getUserSettings } from '../lib/user-settings'
+import { uploadPhoto } from '../lib/upload-api'
+import { MarkdownView } from '../components/MarkdownView'
+import { MarkdownTextarea } from '../components/MarkdownTextarea'
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('zh-CN', {
@@ -185,7 +188,7 @@ export function PlantDetail() {
           {plant.notes && (
             <div className="mt-4 pt-4 border-t border-stone-100">
               <h2 className="text-sm font-medium text-stone-600 mb-1">备注</h2>
-              <p className="text-stone-700 whitespace-pre-wrap">{plant.notes}</p>
+              <MarkdownView value={plant.notes} className="text-stone-700" />
             </div>
           )}
         </div>
@@ -304,7 +307,12 @@ export function PlantDetail() {
                             {CARE_TASK_TYPES.find((t) => t.value === item.taskType)?.label ?? item.taskType}
                           </span>
                           <span>每 {item.intervalDays} 天</span>
-                          {item.note && <span className="text-stone-500">· {item.note}</span>}
+                          {item.note && (
+                            <div className="ml-2 text-xs text-stone-500">
+                              <span>· </span>
+                              <MarkdownView value={item.note} />
+                            </div>
+                          )}
                         </li>
                       ))}
                     </ul>
@@ -369,18 +377,26 @@ export function PlantDetail() {
                         item.data.height != null && `${item.data.height} cm`,
                         item.data.leafCount != null && `叶片 ${item.data.leafCount}`,
                         item.data.healthScore != null && `健康 ${item.data.healthScore}/5`,
-                        item.data.notes,
                       ]
                         .filter(Boolean)
                         .join(' · ') || '无详情'}
                     </span>
+                    {item.data.notes && (
+                      <div className="text-stone-500 mt-1">
+                        <MarkdownView value={item.data.notes} />
+                      </div>
+                    )}
                   </>
                 ) : (
                   <>
                     <span className="rounded bg-amber-100 px-2 py-0.5 text-amber-700">
                       {CARE_TASK_TYPES.find((t) => t.value === item.data.taskType)?.label ?? item.data.taskType}
                     </span>
-                    {item.data.notes && <span className="text-stone-600">{item.data.notes}</span>}
+                    {item.data.notes && (
+                      <div className="text-stone-600 mt-1">
+                        <MarkdownView value={item.data.notes} />
+                      </div>
+                    )}
                   </>
                 )}
               </li>
@@ -468,12 +484,12 @@ export function PlantDetail() {
                     </div>
                     <div className="mt-3">
                       <label className="block text-xs font-medium text-stone-600 mb-1">备注（可选）</label>
-                      <textarea
+                      <MarkdownTextarea
                         value={editingScheduleNote}
-                        onChange={(e) => setEditingScheduleNote(e.target.value)}
+                        onChange={setEditingScheduleNote}
                         rows={2}
-                        className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
                         placeholder="例如：夏天避开中午浇水；施肥先浇透水等"
+                        textareaClassName="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
                       />
                     </div>
                     <div className="mt-3 flex gap-2 justify-end">
@@ -511,7 +527,6 @@ export function PlantDetail() {
                       {CARE_TASK_TYPES.find((t) => t.value === s.taskType)?.label ?? s.taskType}
                     </span>
                     <span className="text-stone-600 text-sm">每 {s.intervalDays} 天</span>
-                    {s.note && <span className="text-stone-500 text-xs">· {s.note}</span>}
                     {(s.startDate || s.endDate) && (
                       <span className="text-stone-500 text-xs">
                         {s.startDate ? `开始 ${formatDateOnlyFromDate(s.startDate)}` : '开始 即刻'}
@@ -592,11 +607,15 @@ export function PlantDetail() {
                       r.height != null && `高度 ${r.height} cm`,
                       r.leafCount != null && `叶片 ${r.leafCount}`,
                       r.healthScore != null && `健康度 ${r.healthScore}/5`,
-                      r.notes,
                     ]
                       .filter(Boolean)
                       .join(' · ') || '—'}
                   </div>
+                  {r.notes && (
+                    <div className="text-sm text-stone-500 mt-1">
+                      <MarkdownView value={r.notes} />
+                    </div>
+                  )}
                 </div>
                 <button
                   type="button"
@@ -674,11 +693,11 @@ export function PlantDetail() {
                     </div>
                     <div className="mt-3">
                       <label className="block text-xs font-medium text-stone-600 mb-1">备注</label>
-                      <textarea
+                      <MarkdownTextarea
                         value={editingCareLogNotes}
-                        onChange={(e) => setEditingCareLogNotes(e.target.value)}
+                        onChange={setEditingCareLogNotes}
                         rows={2}
-                        className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
+                        textareaClassName="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
                       />
                     </div>
                     <div className="mt-3 flex gap-2 justify-end">
@@ -714,7 +733,11 @@ export function PlantDetail() {
                         {CARE_TASK_TYPES.find((t) => t.value === log.taskType)?.label ?? log.taskType}
                       </span>
                       <span className="ml-2 text-stone-600 text-sm">{formatDateOnly(log.doneAt)}</span>
-                      {log.notes && <p className="text-sm text-stone-500 mt-1">{log.notes}</p>}
+                      {log.notes && (
+                        <div className="text-sm text-stone-500 mt-1">
+                          <MarkdownView value={log.notes} />
+                        </div>
+                      )}
                     </div>
                     <div className="flex gap-3 shrink-0">
                       <button
@@ -768,6 +791,9 @@ function GrowthForm({
   const [healthScore, setHealthScore] = useState('')
   const [photoUrl, setPhotoUrl] = useState('')
   const [notes, setNotes] = useState('')
+  const [uploading, setUploading] = useState(false)
+  const [photoError, setPhotoError] = useState<string | null>(null)
+  const photoInputRef = useRef<HTMLInputElement>(null)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -832,21 +858,57 @@ function GrowthForm({
         </div>
       </div>
       <div>
-        <label className="block text-xs font-medium text-stone-600 mb-1">照片 URL</label>
+        <div className="flex items-center justify-between gap-2 mb-1">
+          <label className="block text-xs font-medium text-stone-600">照片</label>
+          <button
+            type="button"
+            disabled={uploading}
+            onClick={() => photoInputRef.current?.click()}
+            className="text-xs text-emerald-600 hover:underline disabled:opacity-50"
+          >
+            {uploading ? '上传中…' : '上传'}
+          </button>
+        </div>
         <input
-          type="url"
-          value={photoUrl}
-          onChange={(e) => setPhotoUrl(e.target.value)}
-          className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
+          ref={photoInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          className="hidden"
+          onChange={async (e) => {
+            const file = e.target.files?.[0]
+            if (!file) return
+            setPhotoError(null)
+            setUploading(true)
+            try {
+              const { url } = await uploadPhoto(file)
+              setPhotoUrl(url)
+            } catch (err) {
+              setPhotoError(err instanceof Error ? err.message : '上传失败')
+            } finally {
+              setUploading(false)
+              e.target.value = ''
+            }
+          }}
         />
+        <input
+          type="text"
+          value={photoUrl}
+          onChange={(e) => {
+            setPhotoUrl(e.target.value)
+            setPhotoError(null)
+          }}
+          className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm mt-0.5"
+          placeholder="上传或粘贴链接"
+        />
+        {photoError && <p className="mt-0.5 text-xs text-red-600">{photoError}</p>}
       </div>
       <div>
         <label className="block text-xs font-medium text-stone-600 mb-1">备注</label>
-        <textarea
+        <MarkdownTextarea
           value={notes}
-          onChange={(e) => setNotes(e.target.value)}
+          onChange={setNotes}
           rows={2}
-          className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
+          textareaClassName="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
         />
       </div>
       <div className="flex gap-2">
@@ -915,11 +977,11 @@ function CareForm({
       </div>
       <div>
         <label className="block text-xs font-medium text-stone-600 mb-1">备注</label>
-        <textarea
+        <MarkdownTextarea
           value={notes}
-          onChange={(e) => setNotes(e.target.value)}
+          onChange={setNotes}
           rows={2}
-          className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
+          textareaClassName="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
         />
       </div>
       <div className="flex gap-2">
@@ -948,7 +1010,7 @@ function ScheduleForm({
 }) {
   const [taskType, setTaskType] = useState<CareSchedule['taskType']>('watering')
   const [intervalDays, setIntervalDays] = useState('7')
-  const [startDate, setStartDate] = useState('')
+  const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [endDate, setEndDate] = useState('')
   const [note, setNote] = useState('')
 
@@ -1015,12 +1077,12 @@ function ScheduleForm({
       </div>
       <div>
         <label className="block text-xs font-medium text-stone-600 mb-1">备注（可选）</label>
-        <textarea
+        <MarkdownTextarea
           value={note}
-          onChange={(e) => setNote(e.target.value)}
+          onChange={setNote}
           rows={2}
-          className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
           placeholder="例如：夏天避开中午浇水；施肥先浇透水等"
+          textareaClassName="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
         />
       </div>
       <div className="flex gap-2">

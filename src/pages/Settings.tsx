@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
+import type { FormEvent } from 'react'
 import { getUserSettings, setUserSettings } from '../lib/user-settings'
+import { changePassword } from '../lib/auth-api'
 
 const PRESETS = [
   '',
@@ -97,7 +99,94 @@ export function Settings() {
           {saved && <span className="text-sm text-emerald-700">已保存</span>}
         </div>
       </section>
+
+      <section className="mt-8 rounded-lg border border-stone-200 bg-white p-4 shadow-sm space-y-3">
+        <h2 className="text-lg font-medium text-stone-800">修改密码</h2>
+        <PasswordForm />
+      </section>
     </div>
+  )
+}
+
+function PasswordForm() {
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault()
+    setMessage(null)
+    if (newPassword !== confirmPassword) {
+      setMessage({ type: 'error', text: '两次输入的新密码不一致' })
+      return
+    }
+    if (newPassword.length < 6) {
+      setMessage({ type: 'error', text: '新密码至少 6 位' })
+      return
+    }
+    setLoading(true)
+    try {
+      await changePassword(currentPassword, newPassword)
+      setMessage({ type: 'success', text: '密码已修改，请使用新密码登录' })
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
+    } catch (e) {
+      setMessage({ type: 'error', text: (e as Error).message || '修改失败' })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-3 max-w-sm">
+      {message && (
+        <p className={`text-sm ${message.type === 'success' ? 'text-emerald-700' : 'text-red-600'}`}>
+          {message.text}
+        </p>
+      )}
+      <div>
+        <label className="block text-sm font-medium text-stone-700 mb-1">当前密码</label>
+        <input
+          type="password"
+          required
+          value={currentPassword}
+          onChange={(e) => setCurrentPassword(e.target.value)}
+          className="w-full rounded border border-stone-300 px-3 py-2 text-sm"
+        />
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-stone-700 mb-1">新密码</label>
+        <input
+          type="password"
+          required
+          minLength={6}
+          value={newPassword}
+          onChange={(e) => setNewPassword(e.target.value)}
+          className="w-full rounded border border-stone-300 px-3 py-2 text-sm"
+        />
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-stone-700 mb-1">再次输入新密码</label>
+        <input
+          type="password"
+          required
+          minLength={6}
+          value={confirmPassword}
+          onChange={(e) => setConfirmPassword(e.target.value)}
+          className="w-full rounded border border-stone-300 px-3 py-2 text-sm"
+        />
+      </div>
+      <button
+        type="submit"
+        disabled={loading}
+        className="rounded-md bg-stone-700 px-4 py-2 text-sm font-medium text-white hover:bg-stone-600 disabled:opacity-60"
+      >
+        {loading ? '提交中…' : '修改密码'}
+      </button>
+    </form>
   )
 }
 
