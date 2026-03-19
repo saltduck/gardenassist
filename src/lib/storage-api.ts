@@ -107,14 +107,14 @@ export async function updateCareSchedule(
   id: string,
   input: Partial<Omit<CareSchedule, 'id' | 'plantId' | 'createdAt'>>
 ): Promise<CareSchedule | undefined> {
-  return await fetchJson<CareSchedule>(`/schedules/${id}`, {
+  return await fetchJson<CareSchedule>(`/schedules/${encodeURIComponent(id)}`, {
     method: 'PUT',
     body: JSON.stringify(input),
   })
 }
 
 export async function deleteCareSchedule(id: string): Promise<boolean> {
-  await fetchJson(`/schedules/${id}`, { method: 'DELETE' })
+  await fetchJson(`/schedules/${encodeURIComponent(id)}`, { method: 'DELETE' })
   return true
 }
 

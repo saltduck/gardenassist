@@ -53,6 +53,8 @@ export interface CareLog {
 export interface CareSchedule {
   id: string
   plantId: string
+  /** shared=同品种共享；plant=仅当前植株 */
+  scope?: 'shared' | 'plant'
   taskType: CareTaskType
   intervalDays: number
   /** 可选：开始日期（YYYY-MM-DD）。为空则立即生效 */

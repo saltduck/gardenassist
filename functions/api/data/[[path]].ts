@@ -91,9 +91,13 @@ function toCareLog(row: any) {
   }
 }
 function toSchedule(row: any) {
+  const scope = row.scope === 'plant' ? 'plant' : 'shared'
+  const rawId = row.id
+  const id = rawId && (String(rawId).startsWith('tpl:') || String(rawId).startsWith('plant:')) ? rawId : `${scope === 'plant' ? 'plant' : 'tpl'}:${rawId}`
   return {
-    id: row.id,
+    id,
     plantId: row.plant_id,
+    scope,
     taskType: row.task_type,
     intervalDays: row.interval_days,
     startDate: row.start_date ?? undefined,
@@ -113,6 +117,13 @@ function normalizeVarietyKey(name: string, variety: string): string {
   const v = (variety ?? '').trim()
   const n = (name ?? '').trim()
   return (v || n).trim().toLowerCase()
+}
+
+function parseScheduleRef(rawId: string): { scope: 'shared' | 'plant'; id: string } {
+  if (rawId.startsWith('tpl:')) return { scope: 'shared', id: rawId.slice(4) }
+  if (rawId.startsWith('plant:')) return { scope: 'plant', id: rawId.slice(6) }
+  // Backward compatibility for old ids (before prefixing)
+  return { scope: 'shared', id: rawId }
 }
 
 function parseCookies(req: Request): Record<string, string> {
@@ -417,12 +428,17 @@ export const onRequest = async (context: Context) => {
       const prow = (plantRes.results as any[])[0]
       if (!prow) return Response.json({ error: 'Not found' }, { status: 404, headers: CORS })
       const vkey = prow.variety_key ?? normalizeVarietyKey(prow.name ?? '', prow.variety ?? '')
-      const { results } = await env.DB
-        .prepare('SELECT * FROM care_schedule_templates WHERE user_id = ? AND variety_key = ? ORDER BY task_type')
-        .bind(user.id, vkey)
-        .all()
-      const mapped = (results as any[]).map((r) => ({ ...r, plant_id: id }))
-      return Response.json(mapped.map(toSchedule), { headers: CORS })
+      const [templateRes, plantRes2] = await Promise.all([
+        env.DB
+          .prepare('SELECT * FROM care_schedule_templates WHERE user_id = ? AND variety_key = ? ORDER BY task_type')
+          .bind(user.id, vkey)
+          .all(),
+        env.DB.prepare('SELECT * FROM care_schedules WHERE plant_id = ? ORDER BY task_type').bind(id).all(),
+      ])
+      const templateRows = (templateRes.results as any[]).map((r) => ({ ...r, plant_id: id, scope: 'shared' }))
+      const plantRows = (plantRes2.results as any[]).map((r) => ({ ...r, scope: 'plant' }))
+      const merged = [...templateRows, ...plantRows]
+      return Response.json(merged.map(toSchedule), { headers: CORS })
     }
 
     // POST /api/data/plants/:id/schedules
@@ -437,10 +453,32 @@ export const onRequest = async (context: Context) => {
 
       const body = (await request.json()) as any
       const now = new Date().toISOString()
+      if (body.scope === 'plant') {
+        const sid = crypto.randomUUID()
+        await env.DB
+          .prepare(
+            'INSERT INTO care_schedules (id, plant_id, task_type, interval_days, start_date, end_date, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+          )
+          .bind(
+            sid,
+            id,
+            body.taskType ?? 'other',
+            body.intervalDays ?? 7,
+            body.startDate ?? null,
+            body.endDate ?? null,
+            body.note ?? null,
+            now
+          )
+          .run()
+        const { results } = await env.DB.prepare('SELECT * FROM care_schedules WHERE id = ?').bind(sid).all()
+        return Response.json(toSchedule({ ...(results as any[])[0], scope: 'plant' }), { status: 201, headers: CORS })
+      }
+
       const tid = crypto.randomUUID()
-      await env.DB.prepare(
-        'INSERT OR REPLACE INTO care_schedule_templates (id, user_id, variety_key, task_type, interval_days, start_date, end_date, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-      )
+      await env.DB
+        .prepare(
+          'INSERT INTO care_schedule_templates (id, user_id, variety_key, task_type, interval_days, start_date, end_date, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        )
         .bind(
           tid,
           user.id,
@@ -454,7 +492,7 @@ export const onRequest = async (context: Context) => {
         )
         .run()
       const { results } = await env.DB.prepare('SELECT * FROM care_schedule_templates WHERE id = ?').bind(tid).all()
-      return Response.json(toSchedule({ ...(results as any[])[0], plant_id: id }), { status: 201, headers: CORS })
+      return Response.json(toSchedule({ ...(results as any[])[0], plant_id: id, scope: 'shared' }), { status: 201, headers: CORS })
     }
 
     // GET /api/data/plants/:id/timeline
@@ -518,36 +556,69 @@ export const onRequest = async (context: Context) => {
 
     // DELETE /api/data/schedules/:id
     if (pathParts[0] === 'schedules' && pathParts.length === 2 && method === 'DELETE') {
-      const sid = pathParts[1]
-      const { results } = await env.DB
-        .prepare('SELECT id FROM care_schedule_templates WHERE id = ? AND user_id = ?')
-        .bind(sid, user.id)
-        .all()
-      if (!results.length) return new Response(null, { status: 204, headers: CORS })
-      await env.DB.prepare('DELETE FROM care_schedule_templates WHERE id = ?').bind(sid).run()
+      const raw = decodeURIComponent(pathParts[1])
+      const sid = parseScheduleRef(raw)
+      if (sid.scope === 'plant') {
+        const { results } = await env.DB
+          .prepare('SELECT cs.id FROM care_schedules cs JOIN plants p ON cs.plant_id = p.id WHERE cs.id = ? AND p.user_id = ?')
+          .bind(sid.id, user.id)
+          .all()
+        if (!results.length) return new Response(null, { status: 204, headers: CORS })
+        await env.DB.prepare('DELETE FROM care_schedules WHERE id = ?').bind(sid.id).run()
+      } else {
+        const { results } = await env.DB
+          .prepare('SELECT id FROM care_schedule_templates WHERE id = ? AND user_id = ?')
+          .bind(sid.id, user.id)
+          .all()
+        if (!results.length) return new Response(null, { status: 204, headers: CORS })
+        await env.DB.prepare('DELETE FROM care_schedule_templates WHERE id = ?').bind(sid.id).run()
+      }
       return new Response(null, { status: 204, headers: CORS })
     }
 
     // PUT /api/data/schedules/:id
     if (pathParts[0] === 'schedules' && pathParts.length === 2 && method === 'PUT') {
-      const sid = pathParts[1]
+      const raw = decodeURIComponent(pathParts[1])
+      const sid = parseScheduleRef(raw)
+      const body = (await request.json()) as any
+
+      if (sid.scope === 'plant') {
+        const { results } = await env.DB
+          .prepare('SELECT cs.* FROM care_schedules cs JOIN plants p ON cs.plant_id = p.id WHERE cs.id = ? AND p.user_id = ?')
+          .bind(sid.id, user.id)
+          .all()
+        if (!results.length) return Response.json({ error: 'Not found' }, { status: 404, headers: CORS })
+        const current = results[0] as any
+        const nextTaskType = body.taskType ?? current.task_type
+        const nextIntervalDays = body.intervalDays ?? current.interval_days
+        const nextStartDate = body.startDate !== undefined ? body.startDate : current.start_date
+        const nextEndDate = body.endDate !== undefined ? body.endDate : current.end_date
+        const nextNote = body.note !== undefined ? body.note : current.note
+        await env.DB
+          .prepare('UPDATE care_schedules SET task_type = ?, interval_days = ?, start_date = ?, end_date = ?, note = ? WHERE id = ?')
+          .bind(nextTaskType, nextIntervalDays, nextStartDate ?? null, nextEndDate ?? null, nextNote ?? null, sid.id)
+          .run()
+        const after = await env.DB.prepare('SELECT * FROM care_schedules WHERE id = ?').bind(sid.id).all()
+        return Response.json(toSchedule({ ...(after.results as any[])[0], scope: 'plant' }), { headers: CORS })
+      }
+
       const { results } = await env.DB
         .prepare('SELECT * FROM care_schedule_templates WHERE id = ? AND user_id = ?')
-        .bind(sid, user.id)
+        .bind(sid.id, user.id)
         .all()
       if (!results.length) return Response.json({ error: 'Not found' }, { status: 404, headers: CORS })
       const current = results[0] as any
-      const body = (await request.json()) as any
       const nextTaskType = body.taskType ?? current.task_type
       const nextIntervalDays = body.intervalDays ?? current.interval_days
       const nextStartDate = body.startDate !== undefined ? body.startDate : current.start_date
       const nextEndDate = body.endDate !== undefined ? body.endDate : current.end_date
       const nextNote = body.note !== undefined ? body.note : current.note
-      await env.DB.prepare('UPDATE care_schedule_templates SET task_type = ?, interval_days = ?, start_date = ?, end_date = ?, note = ? WHERE id = ?')
-        .bind(nextTaskType, nextIntervalDays, nextStartDate ?? null, nextEndDate ?? null, nextNote ?? null, sid)
+      await env.DB
+        .prepare('UPDATE care_schedule_templates SET task_type = ?, interval_days = ?, start_date = ?, end_date = ?, note = ? WHERE id = ?')
+        .bind(nextTaskType, nextIntervalDays, nextStartDate ?? null, nextEndDate ?? null, nextNote ?? null, sid.id)
         .run()
-      const after = await env.DB.prepare('SELECT * FROM care_schedule_templates WHERE id = ?').bind(sid).all()
-      return Response.json(toSchedule({ ...(after.results as any[])[0], plant_id: '' }), { headers: CORS })
+      const after = await env.DB.prepare('SELECT * FROM care_schedule_templates WHERE id = ?').bind(sid.id).all()
+      return Response.json(toSchedule({ ...(after.results as any[])[0], plant_id: current.plant_id ?? '', scope: 'shared' }), { headers: CORS })
     }
 
     // GET /api/data/tasks/due?range=today|week
@@ -555,9 +626,13 @@ export const onRequest = async (context: Context) => {
       const range = url.searchParams.get('range') || 'today'
       const today = todayLocal(tzOffsetMinutes)
       const endOfWeek = addDays(today, 6)
-      const [plantsRes, templatesRes, logsRes] = await Promise.all([
+      const [plantsRes, templatesRes, plantSchedulesRes, logsRes] = await Promise.all([
         env.DB.prepare('SELECT * FROM plants WHERE user_id = ?').bind(user.id).all(),
         env.DB.prepare('SELECT * FROM care_schedule_templates WHERE user_id = ?').bind(user.id).all(),
+        env.DB
+          .prepare('SELECT cs.* FROM care_schedules cs JOIN plants p ON cs.plant_id = p.id WHERE p.user_id = ?')
+          .bind(user.id)
+          .all(),
         env.DB
           .prepare(
             'SELECT cl.* FROM care_logs cl JOIN plants p ON cl.plant_id = p.id WHERE p.user_id = ? ORDER BY cl.done_at DESC'
@@ -567,6 +642,7 @@ export const onRequest = async (context: Context) => {
       ])
       const plants = (plantsRes.results as any[]).map(toPlant)
       const templates = templatesRes.results as any[]
+      const plantSchedules = plantSchedulesRes.results as any[]
       const logs = logsRes.results as any[]
       const lastDone = (plantId: string, taskType: string) => {
         const same = logs.filter((l: any) => l.plant_id === plantId && l.task_type === taskType)
@@ -581,7 +657,11 @@ export const onRequest = async (context: Context) => {
       }
       for (const plant of plants) {
         const vkey = normalizeVarietyKey(plant.name ?? '', plant.variety ?? '')
-        for (const t of byVariety[vkey] || []) {
+        const mergedSchedules = [
+          ...(byVariety[vkey] || []).map((t) => ({ ...t, plant_id: plant.id, scope: 'shared' })),
+          ...plantSchedules.filter((s) => s.plant_id === plant.id).map((s) => ({ ...s, scope: 'plant' })),
+        ]
+        for (const t of mergedSchedules) {
           if (!inScheduleWindow(today, t.start_date, t.end_date)) continue
           const last = lastDone(plant.id, t.task_type)
           const nextDue = computeNextDue(today, last, t.interval_days, t.start_date)
@@ -603,9 +683,13 @@ export const onRequest = async (context: Context) => {
     // GET /api/data/tasks/today-count
     if (pathParts[0] === 'tasks' && pathParts[1] === 'today-count' && method === 'GET') {
       const today = todayLocal(tzOffsetMinutes)
-      const [plantsRes, templatesRes, logsRes] = await Promise.all([
+      const [plantsRes, templatesRes, plantSchedulesRes, logsRes] = await Promise.all([
         env.DB.prepare('SELECT * FROM plants WHERE user_id = ?').bind(user.id).all(),
         env.DB.prepare('SELECT * FROM care_schedule_templates WHERE user_id = ?').bind(user.id).all(),
+        env.DB
+          .prepare('SELECT cs.* FROM care_schedules cs JOIN plants p ON cs.plant_id = p.id WHERE p.user_id = ?')
+          .bind(user.id)
+          .all(),
         env.DB
           .prepare(
             'SELECT cl.* FROM care_logs cl JOIN plants p ON cl.plant_id = p.id WHERE p.user_id = ? ORDER BY cl.done_at DESC'
@@ -615,6 +699,7 @@ export const onRequest = async (context: Context) => {
       ])
       const plants = (plantsRes.results as any[]).map(toPlant)
       const templates = templatesRes.results as any[]
+      const plantSchedules = plantSchedulesRes.results as any[]
       const logs = logsRes.results as any[]
       const lastDone = (plantId: string, taskType: string) => {
         const same = logs.filter((l: any) => l.plant_id === plantId && l.task_type === taskType)
@@ -629,7 +714,11 @@ export const onRequest = async (context: Context) => {
       }
       for (const plant of plants) {
         const vkey = normalizeVarietyKey(plant.name ?? '', plant.variety ?? '')
-        for (const t of byVariety[vkey] || []) {
+        const mergedSchedules = [
+          ...(byVariety[vkey] || []).map((t) => ({ ...t, plant_id: plant.id, scope: 'shared' })),
+          ...plantSchedules.filter((s) => s.plant_id === plant.id).map((s) => ({ ...s, scope: 'plant' })),
+        ]
+        for (const t of mergedSchedules) {
           if (!inScheduleWindow(today, t.start_date, t.end_date)) continue
           const last = lastDone(plant.id, t.task_type)
           const nextDue = computeNextDue(today, last, t.interval_days, t.start_date)
@@ -644,9 +733,13 @@ export const onRequest = async (context: Context) => {
     if (pathParts[0] === 'tasks' && pathParts[1] === 'due' && pathParts.length === 3 && method === 'GET') {
       const dateStr = pathParts[2]
       const today = todayLocal(tzOffsetMinutes)
-      const [plantsRes, templatesRes, logsRes] = await Promise.all([
+      const [plantsRes, templatesRes, plantSchedulesRes, logsRes] = await Promise.all([
         env.DB.prepare('SELECT * FROM plants WHERE user_id = ?').bind(user.id).all(),
         env.DB.prepare('SELECT * FROM care_schedule_templates WHERE user_id = ?').bind(user.id).all(),
+        env.DB
+          .prepare('SELECT cs.* FROM care_schedules cs JOIN plants p ON cs.plant_id = p.id WHERE p.user_id = ?')
+          .bind(user.id)
+          .all(),
         env.DB
           .prepare(
             'SELECT cl.* FROM care_logs cl JOIN plants p ON cl.plant_id = p.id WHERE p.user_id = ? ORDER BY cl.done_at DESC'
@@ -656,6 +749,7 @@ export const onRequest = async (context: Context) => {
       ])
       const plants = (plantsRes.results as any[]).map(toPlant)
       const templates = templatesRes.results as any[]
+      const plantSchedules = plantSchedulesRes.results as any[]
       const logs = logsRes.results as any[]
       const lastDone = (plantId: string, taskType: string) => {
         const same = logs.filter((l: any) => l.plant_id === plantId && l.task_type === taskType)
@@ -670,7 +764,11 @@ export const onRequest = async (context: Context) => {
       }
       for (const plant of plants) {
         const vkey = normalizeVarietyKey(plant.name ?? '', plant.variety ?? '')
-        for (const t of byVariety[vkey] || []) {
+        const mergedSchedules = [
+          ...(byVariety[vkey] || []).map((t) => ({ ...t, plant_id: plant.id, scope: 'shared' })),
+          ...plantSchedules.filter((s) => s.plant_id === plant.id).map((s) => ({ ...s, scope: 'plant' })),
+        ]
+        for (const t of mergedSchedules) {
           if (!inScheduleWindow(dateStr, t.start_date, t.end_date)) continue
           const last = lastDone(plant.id, t.task_type)
           const nextDue = computeNextDue(today, last, t.interval_days, t.start_date)

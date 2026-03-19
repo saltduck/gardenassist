@@ -428,7 +428,7 @@ export function PlantDetail() {
           />
         )}
         {careSchedules.length === 0 && !showScheduleForm ? (
-          <p className="text-stone-500 text-sm">暂无养护计划，添加后会在「待办任务」中生成到期提醒。</p>
+          <p className="text-stone-500 text-sm">暂无养护计划。可添加“同品种共享计划”或“仅此植株计划”。</p>
         ) : (
           <ul className="mt-2 space-y-2">
             {careSchedules.map((s) => (
@@ -438,6 +438,12 @@ export function PlantDetail() {
               >
                 {editingScheduleId === s.id ? (
                   <div className="w-full">
+                    <div className="mb-2 flex items-center gap-2">
+                      <span className={`rounded px-2 py-0.5 text-xs ${s.scope === 'plant' ? 'bg-blue-100 text-blue-700' : 'bg-stone-100 text-stone-600'}`}>
+                        {s.scope === 'plant' ? '仅此植株' : '同品种共享'}
+                      </span>
+                      <span className="text-xs text-stone-500">编辑仅修改周期与备注，不改变计划范围</span>
+                    </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className="block text-xs font-medium text-stone-600 mb-1">类型</label>
@@ -526,6 +532,9 @@ export function PlantDetail() {
                     <span className="rounded bg-amber-100 px-2 py-0.5 text-sm text-amber-700">
                       {CARE_TASK_TYPES.find((t) => t.value === s.taskType)?.label ?? s.taskType}
                     </span>
+                    <span className={`rounded px-2 py-0.5 text-xs ${s.scope === 'plant' ? 'bg-blue-100 text-blue-700' : 'bg-stone-100 text-stone-600'}`}>
+                      {s.scope === 'plant' ? '仅此植株' : '同品种共享'}
+                    </span>
                     <span className="text-stone-600 text-sm">每 {s.intervalDays} 天</span>
                     {(s.startDate || s.endDate) && (
                       <span className="text-stone-500 text-xs">
@@ -551,7 +560,11 @@ export function PlantDetail() {
                       <button
                         type="button"
                         onClick={async () => {
-                          if (window.confirm('删除这条养护计划？')) {
+                          const msg =
+                            s.scope === 'shared'
+                              ? '删除这条同品种共享计划？删除后会影响该品种的其它植株。'
+                              : '删除这条仅此植株计划？删除后只影响当前植株。'
+                          if (window.confirm(msg)) {
                             await deleteCareSchedule(s.id)
                             refresh()
                           }
@@ -1013,6 +1026,7 @@ function ScheduleForm({
   const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [endDate, setEndDate] = useState('')
   const [note, setNote] = useState('')
+  const [scope, setScope] = useState<'shared' | 'plant'>('shared')
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -1020,6 +1034,7 @@ function ScheduleForm({
     if (days < 1) return
     await addCareSchedule({
       plantId,
+      scope,
       taskType,
       intervalDays: days,
       startDate: startDate || undefined,
@@ -1073,6 +1088,29 @@ function ScheduleForm({
             onChange={(e) => setEndDate(e.target.value)}
             className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
           />
+        </div>
+      </div>
+      <div>
+        <label className="block text-xs font-medium text-stone-600 mb-1">计划范围</label>
+        <div className="flex flex-wrap gap-3 text-sm text-stone-700">
+          <label className="inline-flex items-center gap-2">
+            <input
+              type="radio"
+              name="schedule-scope"
+              checked={scope === 'shared'}
+              onChange={() => setScope('shared')}
+            />
+            同品种共享（影响同品种其它植株）
+          </label>
+          <label className="inline-flex items-center gap-2">
+            <input
+              type="radio"
+              name="schedule-scope"
+              checked={scope === 'plant'}
+              onChange={() => setScope('plant')}
+            />
+            仅此植株（不影响其它植株）
+          </label>
         </div>
       </div>
       <div>

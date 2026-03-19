@@ -44,6 +44,9 @@ function TaskRow({
         <span className="ml-2 rounded bg-amber-100 px-2 py-0.5 text-sm text-amber-700">
           {label}
         </span>
+        <span className={`ml-2 rounded px-2 py-0.5 text-xs ${task.schedule.scope === 'plant' ? 'bg-blue-100 text-blue-700' : 'bg-stone-100 text-stone-600'}`}>
+          {task.schedule.scope === 'plant' ? '仅此植株' : '同品种共享'}
+        </span>
         {task.schedule.note && (
           <div className="ml-2 text-xs text-stone-500">
             <span>· </span>
@@ -73,7 +76,11 @@ function TaskRow({
         <button
           type="button"
           onClick={async () => {
-            if (!window.confirm('删除该任务（即删除这条养护计划周期）？')) return
+            const msg =
+              task.schedule.scope === 'shared'
+                ? '删除该任务（同品种共享计划）？删除后会影响该品种的其它植株。'
+                : '删除该任务（仅此植株计划）？删除后只影响当前植株。'
+            if (!window.confirm(msg)) return
             await deleteCareSchedule(task.schedule.id)
             onAfterChange()
           }}
@@ -85,6 +92,12 @@ function TaskRow({
 
       {editing && (
         <div className="mt-3 rounded-md border border-stone-200 bg-stone-50 p-3">
+          <div className="mb-2 flex items-center gap-2">
+            <span className={`rounded px-2 py-0.5 text-xs ${task.schedule.scope === 'plant' ? 'bg-blue-100 text-blue-700' : 'bg-stone-100 text-stone-600'}`}>
+              {task.schedule.scope === 'plant' ? '仅此植株' : '同品种共享'}
+            </span>
+            <span className="text-xs text-stone-500">编辑仅修改周期与备注，不改变计划范围</span>
+          </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className="block text-xs font-medium text-stone-600 mb-1">类型</label>
