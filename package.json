@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "test": "vitest run",
     "lint": "eslint .",
     "preview": "vite preview",
     "deploy": "npm run build && npx wrangler pages deploy dist --project-name=gardenassit"
@@ -33,5 +34,7 @@
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.56.1",
     "vite": "^8.0.0"
+    ,
+    "vitest": "^3.2.4"
   }
 }

@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { addDays, computeNextDue, inScheduleWindow, shouldIncludeInRange } from './schedule-algorithm'
 interface D1Database {
   prepare: (query: string) => {
     bind: (...args: any[]) => {
@@ -42,17 +43,6 @@ function todayLocal(tzOffsetMinutes: number): string {
   return isoToLocalDate(new Date().toISOString(), tzOffsetMinutes)
 }
 
-function inScheduleWindow(dateStr: string, startDate?: string | null, endDate?: string | null): boolean {
-  if (startDate && dateStr < startDate) return false
-  if (endDate && dateStr > endDate) return false
-  return true
-}
-
-function computeNextDue(today: string, lastDoneLocal: string | null, intervalDays: number, startDate?: string | null): string {
-  if (!lastDoneLocal) return startDate && startDate > today ? startDate : today
-  if (startDate && lastDoneLocal < startDate) return startDate
-  return addDays(lastDoneLocal, intervalDays)
-}
 
 function toPlant(row: any) {
   return {
@@ -105,12 +95,6 @@ function toSchedule(row: any) {
     note: row.note ?? undefined,
     createdAt: row.created_at,
   }
-}
-
-function addDays(dateStr: string, days: number): string {
-  const d = new Date(dateStr + 'T12:00:00Z')
-  d.setUTCDate(d.getUTCDate() + days)
-  return d.toISOString().slice(0, 10)
 }
 
 function normalizeVarietyKey(name: string, variety: string): string {
@@ -662,11 +646,9 @@ export const onRequest = async (context: Context) => {
           ...plantSchedules.filter((s) => s.plant_id === plant.id).map((s) => ({ ...s, scope: 'plant' })),
         ]
         for (const t of mergedSchedules) {
-          if (!inScheduleWindow(today, t.start_date, t.end_date)) continue
           const last = lastDone(plant.id, t.task_type)
           const nextDue = computeNextDue(today, last, t.interval_days, t.start_date)
-          if (t.end_date && nextDue > t.end_date) continue
-          const inRange = range === 'today' ? nextDue <= today : nextDue >= today && nextDue <= endOfWeek
+          const inRange = shouldIncludeInRange(range as 'today' | 'week', today, endOfWeek, nextDue, t.start_date, t.end_date)
           if (inRange)
             result.push({
               plant,
