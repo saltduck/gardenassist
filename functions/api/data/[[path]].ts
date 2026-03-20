@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { addDays, computeNextDue, inScheduleWindow, shouldIncludeInRange } from './schedule-algorithm'
+import { addDays, computeDueFromLast, computeNextDue, inScheduleWindow, shouldIncludeInRange } from './schedule-algorithm'
 interface D1Database {
   prepare: (query: string) => {
     bind: (...args: any[]) => {
@@ -647,7 +647,10 @@ export const onRequest = async (context: Context) => {
         ]
         for (const t of mergedSchedules) {
           const last = lastDone(plant.id, t.task_type)
-          const nextDue = computeNextDue(today, last, t.interval_days, t.start_date)
+          const nextDue =
+            range === 'today'
+              ? computeDueFromLast(today, last, t.interval_days, t.start_date)
+              : computeNextDue(today, last, t.interval_days, t.start_date)
           const inRange = shouldIncludeInRange(range as 'today' | 'week', today, endOfWeek, nextDue, t.start_date, t.end_date)
           if (inRange)
             result.push({

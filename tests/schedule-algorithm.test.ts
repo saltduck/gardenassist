@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { addDays, computeNextDue, inScheduleWindow, shouldIncludeInRange } from '../functions/api/data/schedule-algorithm'
+import {
+  addDays,
+  computeDueFromLast,
+  computeNextDue,
+  inScheduleWindow,
+  shouldIncludeInRange,
+} from '../functions/api/data/schedule-algorithm'
 
 describe('schedule algorithm', () => {
   it('addDays should return correct yyyy-mm-dd across month', () => {
@@ -44,5 +50,14 @@ describe('schedule algorithm', () => {
 
   it('shouldIncludeInRange should enforce endDate by nextDue', () => {
     expect(shouldIncludeInRange('week', '2026-03-15', '2026-03-21', '2026-03-22', null, '2026-03-21')).toBe(false)
+  })
+
+  it('computeDueFromLast should keep overdue date for today list', () => {
+    expect(computeDueFromLast('2026-03-15', '2026-03-01', 7)).toBe('2026-03-08')
+  })
+
+  it('week range should not include today date', () => {
+    expect(shouldIncludeInRange('week', '2026-03-15', '2026-03-21', '2026-03-15')).toBe(false)
+    expect(shouldIncludeInRange('week', '2026-03-15', '2026-03-21', '2026-03-16')).toBe(true)
   })
 })

@@ -27,6 +27,17 @@ export function computeNextDue(
   return next
 }
 
+export function computeDueFromLast(
+  today: string,
+  lastDoneLocal: string | null,
+  intervalDays: number,
+  startDate?: string | null
+): string {
+  if (!lastDoneLocal) return startDate && startDate > today ? startDate : today
+  if (startDate && lastDoneLocal < startDate) return startDate
+  return addDays(lastDoneLocal, intervalDays)
+}
+
 export function shouldIncludeInRange(
   range: DueRange,
   today: string,
@@ -37,5 +48,5 @@ export function shouldIncludeInRange(
 ): boolean {
   if (!inScheduleWindow(nextDue, startDate, endDate)) return false
   if (range === 'today') return nextDue <= today
-  return nextDue >= today && nextDue <= endOfWeek
+  return nextDue > today && nextDue <= endOfWeek
 }
