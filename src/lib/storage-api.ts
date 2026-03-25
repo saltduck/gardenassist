@@ -3,7 +3,7 @@
  * 所有方法均为 async，组件需在 useEffect 中调用并 setState。
  */
 import type { Plant, GrowthRecord, CareLog, CareSchedule } from '../types/plant'
-import type { DueTask, TimelineItem } from '../types/data'
+import type { DailyWeather, DueTask, TimelineItem } from '../types/data'
 
 const API_BASE = '/api/data'
 
@@ -143,6 +143,26 @@ export async function getCareLogsForDate(dateStr: string): Promise<CareLog[]> {
 
 export async function getRecentCareLogs(limit: number): Promise<Array<{ log: CareLog; plant: Plant | undefined }>> {
   return await fetchJson<Array<{ log: CareLog; plant: Plant | undefined }>>(`/recent-care-logs?limit=${limit}`)
+}
+
+export async function getWeatherForRange(from: string, to: string): Promise<DailyWeather[]> {
+  return await fetchJson<DailyWeather[]>(
+    `/weather/range?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
+  )
+}
+
+export async function upsertDailyWeather(
+  date: string,
+  input: { tempMaxC?: number | null; tempMinC?: number | null; precipitationMm?: number | null }
+): Promise<DailyWeather> {
+  return await fetchJson<DailyWeather>(`/weather/${date}`, {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  })
+}
+
+export async function deleteDailyWeather(date: string): Promise<void> {
+  await fetchJson(`/weather/${date}`, { method: 'DELETE' })
 }
 
 export type { DueTask, TimelineItem }

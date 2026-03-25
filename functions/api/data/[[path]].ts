@@ -97,6 +97,25 @@ function toSchedule(row: any) {
   }
 }
 
+function toDailyWeather(row: any) {
+  return {
+    date: row.date,
+    tempMaxC: row.temp_max_c != null ? Number(row.temp_max_c) : null,
+    tempMinC: row.temp_min_c != null ? Number(row.temp_min_c) : null,
+    precipitationMm: row.precipitation_mm != null ? Number(row.precipitation_mm) : null,
+    updatedAt: row.updated_at,
+  }
+}
+
+function parseOptionalWeatherNumber(body: Record<string, unknown>, key: string): number | null | undefined {
+  if (!Object.prototype.hasOwnProperty.call(body, key)) return undefined
+  const v = body[key]
+  if (v === null) return null
+  const n = typeof v === 'number' ? v : Number(v)
+  if (!Number.isFinite(n)) throw new Error(`字段 ${key} 须为数字`)
+  return n
+}
+
 function normalizeVarietyKey(name: string, variety: string): string {
   const v = (variety ?? '').trim()
   const n = (name ?? '').trim()
@@ -803,6 +822,85 @@ export const onRequest = async (context: Context) => {
       }
       const getPlant = (pid: string) => plants.find((p: any) => p.id === pid)
       return Response.json(logs.map((log: any) => ({ log, plant: getPlant(log.plantId) })), { headers: CORS })
+    }
+
+    // GET /api/data/weather/range?from=YYYY-MM-DD&to=YYYY-MM-DD
+    if (path === 'weather/range' && method === 'GET') {
+      const from = url.searchParams.get('from')
+      const to = url.searchParams.get('to')
+      if (!from || !to || !/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+        return Response.json({ error: '请提供有效的 from、to（YYYY-MM-DD）' }, { status: 400, headers: CORS })
+      }
+      const { results } = await env.DB
+        .prepare('SELECT * FROM daily_weather WHERE user_id = ? AND date >= ? AND date <= ? ORDER BY date')
+        .bind(user.id, from, to)
+        .all()
+      return Response.json((results as any[]).map(toDailyWeather), { headers: CORS })
+    }
+
+    // PUT /api/data/weather/:date
+    if (pathParts[0] === 'weather' && pathParts.length === 2 && method === 'PUT') {
+      const dateStr = pathParts[1]
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+        return Response.json({ error: '无效日期' }, { status: 400, headers: CORS })
+      }
+      let body: Record<string, unknown>
+      try {
+        body = (await request.json()) as Record<string, unknown>
+      } catch {
+        return Response.json({ error: '请求体不是合法 JSON' }, { status: 400, headers: CORS })
+      }
+      let nextMax: number | null | undefined
+      let nextMin: number | null | undefined
+      let nextP: number | null | undefined
+      try {
+        nextMax = parseOptionalWeatherNumber(body, 'tempMaxC')
+        nextMin = parseOptionalWeatherNumber(body, 'tempMinC')
+        nextP = parseOptionalWeatherNumber(body, 'precipitationMm')
+      } catch (e) {
+        return Response.json({ error: e instanceof Error ? e.message : '参数错误' }, { status: 400, headers: CORS })
+      }
+      const now = new Date().toISOString()
+      const { results: existingRows } = await env.DB
+        .prepare('SELECT * FROM daily_weather WHERE user_id = ? AND date = ?')
+        .bind(user.id, dateStr)
+        .all()
+      const cur = (existingRows as any[])[0]
+      const mergedMax = nextMax !== undefined ? nextMax : cur != null ? cur.temp_max_c : null
+      const mergedMin = nextMin !== undefined ? nextMin : cur != null ? cur.temp_min_c : null
+      const mergedP = nextP !== undefined ? nextP : cur != null ? cur.precipitation_mm : null
+      const hasAny =
+        mergedMax != null ||
+        mergedMin != null ||
+        mergedP != null
+      if (!hasAny) {
+        await env.DB.prepare('DELETE FROM daily_weather WHERE user_id = ? AND date = ?').bind(user.id, dateStr).run()
+        return Response.json(
+          { date: dateStr, tempMaxC: null, tempMinC: null, precipitationMm: null, updatedAt: now },
+          { headers: CORS }
+        )
+      }
+      await env.DB
+        .prepare(
+          'INSERT INTO daily_weather (user_id, date, temp_max_c, temp_min_c, precipitation_mm, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(user_id, date) DO UPDATE SET temp_max_c = excluded.temp_max_c, temp_min_c = excluded.temp_min_c, precipitation_mm = excluded.precipitation_mm, updated_at = excluded.updated_at'
+        )
+        .bind(user.id, dateStr, mergedMax, mergedMin, mergedP, now)
+        .run()
+      const { results: after } = await env.DB
+        .prepare('SELECT * FROM daily_weather WHERE user_id = ? AND date = ?')
+        .bind(user.id, dateStr)
+        .all()
+      return Response.json(toDailyWeather((after as any[])[0]), { headers: CORS })
+    }
+
+    // DELETE /api/data/weather/:date
+    if (pathParts[0] === 'weather' && pathParts.length === 2 && method === 'DELETE') {
+      const dateStr = pathParts[1]
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+        return Response.json({ error: '无效日期' }, { status: 400, headers: CORS })
+      }
+      await env.DB.prepare('DELETE FROM daily_weather WHERE user_id = ? AND date = ?').bind(user.id, dateStr).run()
+      return new Response(null, { status: 204, headers: CORS })
     }
 
     return Response.json({ error: 'Not found' }, { status: 404, headers: CORS })

@@ -16,3 +16,12 @@ export interface AppSettings {
   location: string
 }
 
+/** 某日气温与降水（YYYY-MM-DD，与日历格一致） */
+export interface DailyWeather {
+  date: string
+  tempMaxC: number | null
+  tempMinC: number | null
+  precipitationMm: number | null
+  updatedAt: string
+}
+
