@@ -20,12 +20,14 @@ function TaskRow({
   onAfterChange,
 }: {
   task: DueTask
-  onComplete: () => void
+  onComplete: (doneAt: string) => void
   onAfterChange: () => void
 }) {
   const label = CARE_TASK_TYPES.find((t) => t.value === task.schedule.taskType)?.label ?? task.schedule.taskType
   const isOverdue = task.nextDue < new Date().toISOString().slice(0, 10)
   const [editing, setEditing] = useState(false)
+  const [showCompleteDialog, setShowCompleteDialog] = useState(false)
+  const [completeDate, setCompleteDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [taskType, setTaskType] = useState(task.schedule.taskType)
   const [intervalDays, setIntervalDays] = useState(String(task.schedule.intervalDays))
   const [startDate, setStartDate] = useState(task.schedule.startDate ?? '')
@@ -61,7 +63,10 @@ function TaskRow({
       <div className="mt-2 flex flex-wrap gap-2 justify-end">
         <button
           type="button"
-          onClick={onComplete}
+          onClick={() => {
+            setCompleteDate(new Date().toISOString().slice(0, 10))
+            setShowCompleteDialog(true)
+          }}
           className="shrink-0 rounded bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700"
         >
           完成
@@ -90,6 +95,38 @@ function TaskRow({
         </button>
       </div>
 
+      {showCompleteDialog && (
+        <div className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 p-3">
+          <label className="block text-sm font-medium text-stone-700 mb-2">完成日期</label>
+          <input
+            type="date"
+            value={completeDate}
+            onChange={(e) => setCompleteDate(e.target.value)}
+            className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm mb-3"
+          />
+          <div className="flex gap-2 justify-end">
+            <button
+              type="button"
+              onClick={() => {
+                const doneAt = new Date(completeDate + 'T12:00:00').toISOString()
+                onComplete(doneAt)
+                setShowCompleteDialog(false)
+              }}
+              className="rounded bg-emerald-600 px-3 py-1.5 text-sm text-white hover:bg-emerald-700"
+            >
+              确认完成
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowCompleteDialog(false)}
+              className="rounded border border-stone-300 px-3 py-1.5 text-sm hover:bg-stone-100"
+            >
+              取消
+            </button>
+          </div>
+        </div>
+      )}
+
       {editing && (
         <div className="mt-3 rounded-md border border-stone-200 bg-stone-50 p-3">
           <div className="mb-2 flex items-center gap-2">
@@ -112,10 +149,10 @@ function TaskRow({
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-stone-600 mb-1">间隔（天）</label>
+              <label className="block text-xs font-medium text-stone-600 mb-1">间隔（天，0=一次性）</label>
               <input
                 type="number"
-                min={1}
+                min={0}
                 value={intervalDays}
                 onChange={(e) => setIntervalDays(e.target.value)}
                 className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
@@ -157,7 +194,7 @@ function TaskRow({
               type="button"
               onClick={async () => {
                 const days = Number(intervalDays)
-                if (!Number.isFinite(days) || days < 1) return
+                if (!Number.isFinite(days) || days < 0) return
                 await updateCareSchedule(task.schedule.id, {
                   taskType,
                   intervalDays: days,
@@ -208,11 +245,11 @@ export function Tasks() {
     refresh()
   }, [])
 
-  const handleComplete = async (task: DueTask) => {
+  const handleComplete = async (task: DueTask, doneAt: string) => {
     await addCareLog({
       plantId: task.plant.id,
       taskType: task.schedule.taskType,
-      doneAt: new Date().toISOString(),
+      doneAt,
     })
     refresh()
   }
@@ -234,7 +271,7 @@ export function Tasks() {
               <TaskRow
                 key={`${task.schedule.id}-${task.nextDue}`}
                 task={task}
-                onComplete={() => handleComplete(task)}
+                onComplete={(doneAt) => handleComplete(task, doneAt)}
                 onAfterChange={refresh}
               />
             ))}
@@ -254,7 +291,7 @@ export function Tasks() {
               <TaskRow
                 key={`${task.schedule.id}-${task.nextDue}`}
                 task={task}
-                onComplete={() => handleComplete(task)}
+                onComplete={(doneAt) => handleComplete(task, doneAt)}
                 onAfterChange={refresh}
               />
             ))}

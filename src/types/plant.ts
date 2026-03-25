@@ -21,6 +21,8 @@ export const CARE_TASK_TYPES = [
   { value: 'pruning', label: '修剪' },
   { value: 'repotting', label: '换盆' },
   { value: 'pest_control', label: '除虫' },
+  { value: 'mulch', label: 'Mulch' },
+  { value: 'mowing', label: '割草' },
   { value: 'other', label: '其他' },
 ] as const
 
