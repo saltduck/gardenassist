@@ -458,10 +458,10 @@ export function PlantDetail() {
                         </select>
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-stone-600 mb-1">间隔（天）</label>
+                        <label className="block text-xs font-medium text-stone-600 mb-1">间隔（天，0=一次性）</label>
                         <input
                           type="number"
-                          min="1"
+                          min="0"
                           value={editingScheduleIntervalDays}
                           onChange={(e) => setEditingScheduleIntervalDays(e.target.value)}
                           className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
@@ -503,7 +503,7 @@ export function PlantDetail() {
                         type="button"
                         onClick={async () => {
                           const days = Number(editingScheduleIntervalDays)
-                          if (!Number.isFinite(days) || days < 1) return
+                          if (!Number.isFinite(days) || days < 0) return
                           await updateCareSchedule(s.id, {
                             taskType: editingScheduleTaskType,
                             intervalDays: days,
@@ -948,7 +948,7 @@ function CareForm({
   onSuccess: () => void
   onCancel: () => void
 }) {
-  const [taskType, setTaskType] = useState<'watering' | 'fertilizing' | 'pruning' | 'repotting' | 'pest_control' | 'other'>('watering')
+  const [taskType, setTaskType] = useState<CareLog['taskType']>('watering')
   const [doneAt, setDoneAt] = useState(new Date().toISOString().slice(0, 16))
   const [notes, setNotes] = useState('')
 
@@ -1031,7 +1031,7 @@ function ScheduleForm({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     const days = Number(intervalDays)
-    if (days < 1) return
+    if (days < 0 || !Number.isFinite(days)) return
     await addCareSchedule({
       plantId,
       scope,
@@ -1060,10 +1060,10 @@ function ScheduleForm({
           </select>
         </div>
         <div>
-          <label className="block text-xs font-medium text-stone-600 mb-1">间隔（天）</label>
+          <label className="block text-xs font-medium text-stone-600 mb-1">间隔（天，0=一次性）</label>
           <input
             type="number"
-            min="1"
+            min="0"
             value={intervalDays}
             onChange={(e) => setIntervalDays(e.target.value)}
             className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
