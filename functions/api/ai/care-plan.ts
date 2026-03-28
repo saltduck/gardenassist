@@ -1,7 +1,7 @@
 type Env = { OPENAI_API_KEY: string }
 type Context = { request: Request; env: Env }
 
-const TASK_TYPES = ['watering', 'fertilizing', 'pruning', 'repotting', 'pest_control', 'other']
+const TASK_TYPES = ['watering', 'fertilizing', 'pruning', 'repotting', 'pest_control', 'mulch', 'mowing', 'other']
 
 export const onRequestPost = async (context: Context) => {
   const { request, env } = context
@@ -30,7 +30,7 @@ export const onRequestPost = async (context: Context) => {
         messages: [
           {
             role: 'system',
-            content: `你输出严格的 JSON 数组，无其他文字。每项格式：{"taskType":" watering|fertilizing|pruning|repotting|pest_control|other","intervalDays":数字,"note":"可选中文说明"}。taskType 必须为上述之一。`,
+            content: `你输出严格的 JSON 数组，无其他文字。每项格式：{"taskType":"watering|fertilizing|pruning|repotting|pest_control|mulch|mowing|other","intervalDays":数字,"note":"可选中文说明"}。taskType 必须为上述之一。`,
           },
           {
             role: 'user',

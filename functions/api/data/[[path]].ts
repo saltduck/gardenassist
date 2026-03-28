@@ -80,6 +80,17 @@ function toCareLog(row: any) {
     createdAt: row.created_at,
   }
 }
+
+function toCareSkip(row: any) {
+  return {
+    id: row.id,
+    plantId: row.plant_id,
+    taskType: row.task_type,
+    skippedAt: row.skipped_at,
+    notes: row.notes ?? undefined,
+    createdAt: row.created_at,
+  }
+}
 function toSchedule(row: any) {
   const scope = row.scope === 'plant' ? 'plant' : 'shared'
   const rawId = row.id
@@ -422,6 +433,22 @@ export const onRequest = async (context: Context) => {
       return Response.json(toCareLog(results[0]), { status: 201, headers: CORS })
     }
 
+    // POST /api/data/plants/:id/care-skips
+    if (pathParts[0] === 'plants' && pathParts[2] === 'care-skips' && method === 'POST') {
+      const plantRows = await env.DB.prepare('SELECT id FROM plants WHERE id = ? AND user_id = ?').bind(id, user.id).all()
+      if (!plantRows.results.length) return Response.json({ error: 'Not found' }, { status: 404, headers: CORS })
+      const body = (await request.json()) as any
+      const rid = crypto.randomUUID()
+      const now = new Date().toISOString()
+      await env.DB.prepare(
+        'INSERT INTO care_skips (id, plant_id, task_type, skipped_at, notes, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+      )
+        .bind(rid, id, body.taskType ?? 'other', body.skippedAt ?? now, body.notes ?? null, now)
+        .run()
+      const { results } = await env.DB.prepare('SELECT * FROM care_skips WHERE id = ?').bind(rid).all()
+      return Response.json(toCareSkip(results[0]), { status: 201, headers: CORS })
+    }
+
     // GET /api/data/plants/:id/schedules
     if (pathParts[0] === 'plants' && pathParts[2] === 'schedules' && method === 'GET') {
       const plantRes = await env.DB
@@ -629,7 +656,7 @@ export const onRequest = async (context: Context) => {
       const range = url.searchParams.get('range') || 'today'
       const today = todayLocal(tzOffsetMinutes)
       const endOfWeek = addDays(today, 6)
-      const [plantsRes, templatesRes, plantSchedulesRes, logsRes] = await Promise.all([
+      const [plantsRes, templatesRes, plantSchedulesRes, logsRes, skipsRes] = await Promise.all([
         env.DB.prepare('SELECT * FROM plants WHERE user_id = ?').bind(user.id).all(),
         env.DB.prepare('SELECT * FROM care_schedule_templates WHERE user_id = ?').bind(user.id).all(),
         env.DB
@@ -642,15 +669,34 @@ export const onRequest = async (context: Context) => {
           )
           .bind(user.id)
           .all(),
+        env.DB
+          .prepare(
+            'SELECT cs.* FROM care_skips cs JOIN plants p ON cs.plant_id = p.id WHERE p.user_id = ? ORDER BY cs.skipped_at DESC'
+          )
+          .bind(user.id)
+          .all(),
       ])
       const plants = (plantsRes.results as any[]).map(toPlant)
       const templates = templatesRes.results as any[]
       const plantSchedules = plantSchedulesRes.results as any[]
       const logs = logsRes.results as any[]
-      const lastDone = (plantId: string, taskType: string) => {
-        const same = logs.filter((l: any) => l.plant_id === plantId && l.task_type === taskType)
-        return same[0] ? isoToLocalDate(same[0].done_at, tzOffsetMinutes) : null
+      const skips = skipsRes.results as any[]
+      // 最近一次“完成/跳过”的本地日期（用于推进下一次到期）
+      const actionLocalByKey: Record<string, string | null> = {}
+      const actionMsByKey: Record<string, number> = {}
+      const keyOf = (plantId: string, taskType: string) => `${plantId}|${taskType}`
+      const setIfLater = (plantId: string, taskType: string, iso: string) => {
+        const ms = Date.parse(iso)
+        if (!Number.isFinite(ms)) return
+        const k = keyOf(plantId, taskType)
+        if (actionMsByKey[k] == null || ms > actionMsByKey[k]) {
+          actionMsByKey[k] = ms
+          actionLocalByKey[k] = isoToLocalDate(iso, tzOffsetMinutes)
+        }
       }
+      for (const l of logs) setIfLater(l.plant_id, l.task_type, l.done_at)
+      for (const s of skips) setIfLater(s.plant_id, s.task_type, s.skipped_at)
+      const lastDone = (plantId: string, taskType: string) => actionLocalByKey[keyOf(plantId, taskType)] ?? null
       const result: any[] = []
       const byVariety: Record<string, any[]> = {}
       for (const t of templates) {
@@ -687,7 +733,7 @@ export const onRequest = async (context: Context) => {
     // GET /api/data/tasks/today-count
     if (pathParts[0] === 'tasks' && pathParts[1] === 'today-count' && method === 'GET') {
       const today = todayLocal(tzOffsetMinutes)
-      const [plantsRes, templatesRes, plantSchedulesRes, logsRes] = await Promise.all([
+      const [plantsRes, templatesRes, plantSchedulesRes, logsRes, skipsRes] = await Promise.all([
         env.DB.prepare('SELECT * FROM plants WHERE user_id = ?').bind(user.id).all(),
         env.DB.prepare('SELECT * FROM care_schedule_templates WHERE user_id = ?').bind(user.id).all(),
         env.DB
@@ -700,15 +746,33 @@ export const onRequest = async (context: Context) => {
           )
           .bind(user.id)
           .all(),
+        env.DB
+          .prepare(
+            'SELECT cs.* FROM care_skips cs JOIN plants p ON cs.plant_id = p.id WHERE p.user_id = ? ORDER BY cs.skipped_at DESC'
+          )
+          .bind(user.id)
+          .all(),
       ])
       const plants = (plantsRes.results as any[]).map(toPlant)
       const templates = templatesRes.results as any[]
       const plantSchedules = plantSchedulesRes.results as any[]
       const logs = logsRes.results as any[]
-      const lastDone = (plantId: string, taskType: string) => {
-        const same = logs.filter((l: any) => l.plant_id === plantId && l.task_type === taskType)
-        return same[0] ? isoToLocalDate(same[0].done_at, tzOffsetMinutes) : null
+      const skips = skipsRes.results as any[]
+      const actionLocalByKey: Record<string, string | null> = {}
+      const actionMsByKey: Record<string, number> = {}
+      const keyOf = (plantId: string, taskType: string) => `${plantId}|${taskType}`
+      const setIfLater = (plantId: string, taskType: string, iso: string) => {
+        const ms = Date.parse(iso)
+        if (!Number.isFinite(ms)) return
+        const k = keyOf(plantId, taskType)
+        if (actionMsByKey[k] == null || ms > actionMsByKey[k]) {
+          actionMsByKey[k] = ms
+          actionLocalByKey[k] = isoToLocalDate(iso, tzOffsetMinutes)
+        }
       }
+      for (const l of logs) setIfLater(l.plant_id, l.task_type, l.done_at)
+      for (const s of skips) setIfLater(s.plant_id, s.task_type, s.skipped_at)
+      const lastDone = (plantId: string, taskType: string) => actionLocalByKey[keyOf(plantId, taskType)] ?? null
       let count = 0
       const byVariety: Record<string, any[]> = {}
       for (const t of templates) {
@@ -726,6 +790,7 @@ export const onRequest = async (context: Context) => {
           if (!inScheduleWindow(today, t.start_date, t.end_date)) continue
           const last = lastDone(plant.id, t.task_type)
           const nextDue = computeNextDue(today, last, t.interval_days, t.start_date)
+          if (nextDue === null) continue
           if (t.end_date && nextDue > t.end_date) continue
           if (nextDue <= today) count++
         }
@@ -737,7 +802,7 @@ export const onRequest = async (context: Context) => {
     if (pathParts[0] === 'tasks' && pathParts[1] === 'due' && pathParts.length === 3 && method === 'GET') {
       const dateStr = pathParts[2]
       const today = todayLocal(tzOffsetMinutes)
-      const [plantsRes, templatesRes, plantSchedulesRes, logsRes] = await Promise.all([
+      const [plantsRes, templatesRes, plantSchedulesRes, logsRes, skipsRes] = await Promise.all([
         env.DB.prepare('SELECT * FROM plants WHERE user_id = ?').bind(user.id).all(),
         env.DB.prepare('SELECT * FROM care_schedule_templates WHERE user_id = ?').bind(user.id).all(),
         env.DB
@@ -750,15 +815,33 @@ export const onRequest = async (context: Context) => {
           )
           .bind(user.id)
           .all(),
+        env.DB
+          .prepare(
+            'SELECT cs.* FROM care_skips cs JOIN plants p ON cs.plant_id = p.id WHERE p.user_id = ? ORDER BY cs.skipped_at DESC'
+          )
+          .bind(user.id)
+          .all(),
       ])
       const plants = (plantsRes.results as any[]).map(toPlant)
       const templates = templatesRes.results as any[]
       const plantSchedules = plantSchedulesRes.results as any[]
       const logs = logsRes.results as any[]
-      const lastDone = (plantId: string, taskType: string) => {
-        const same = logs.filter((l: any) => l.plant_id === plantId && l.task_type === taskType)
-        return same[0] ? isoToLocalDate(same[0].done_at, tzOffsetMinutes) : null
+      const skips = skipsRes.results as any[]
+      const actionLocalByKey: Record<string, string | null> = {}
+      const actionMsByKey: Record<string, number> = {}
+      const keyOf = (plantId: string, taskType: string) => `${plantId}|${taskType}`
+      const setIfLater = (plantId: string, taskType: string, iso: string) => {
+        const ms = Date.parse(iso)
+        if (!Number.isFinite(ms)) return
+        const k = keyOf(plantId, taskType)
+        if (actionMsByKey[k] == null || ms > actionMsByKey[k]) {
+          actionMsByKey[k] = ms
+          actionLocalByKey[k] = isoToLocalDate(iso, tzOffsetMinutes)
+        }
       }
+      for (const l of logs) setIfLater(l.plant_id, l.task_type, l.done_at)
+      for (const s of skips) setIfLater(s.plant_id, s.task_type, s.skipped_at)
+      const lastDone = (plantId: string, taskType: string) => actionLocalByKey[keyOf(plantId, taskType)] ?? null
       const result: any[] = []
       const byVariety: Record<string, any[]> = {}
       for (const t of templates) {
@@ -776,6 +859,7 @@ export const onRequest = async (context: Context) => {
           if (!inScheduleWindow(dateStr, t.start_date, t.end_date)) continue
           const last = lastDone(plant.id, t.task_type)
           const nextDue = computeNextDue(today, last, t.interval_days, t.start_date)
+          if (nextDue === null) continue
           if (t.end_date && nextDue > t.end_date) continue
           if (nextDue === dateStr)
             result.push({

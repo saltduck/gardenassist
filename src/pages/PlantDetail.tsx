@@ -19,7 +19,7 @@ import {
 import { getAdvice, getCarePlan } from '../lib/api'
 import type { CarePlanItem } from '../lib/api'
 import type { TimelineItem } from '../types/data'
-import { CARE_TASK_TYPES } from '../types/plant'
+import { CARE_TASK_TYPES, formatScheduleInterval } from '../types/plant'
 import type { Plant, GrowthRecord, CareLog, CareSchedule } from '../types/plant'
 import type { CareTaskType } from '../types/plant'
 import { useEffect, useRef, useState } from 'react'
@@ -306,7 +306,7 @@ export function PlantDetail() {
                           <span className="rounded bg-amber-100 px-1.5 py-0.5">
                             {CARE_TASK_TYPES.find((t) => t.value === item.taskType)?.label ?? item.taskType}
                           </span>
-                          <span>每 {item.intervalDays} 天</span>
+                          <span>{formatScheduleInterval(item.intervalDays)}</span>
                           {item.note && (
                             <div className="ml-2 text-xs text-stone-500">
                               <span>· </span>
@@ -320,7 +320,7 @@ export function PlantDetail() {
                       <button
                         type="button"
                         onClick={async () => {
-                          const validTypes: CareTaskType[] = ['watering', 'fertilizing', 'pruning', 'repotting', 'pest_control', 'other']
+                          const validTypes = CARE_TASK_TYPES.map((x) => x.value) as CareTaskType[]
                           for (let i = 0; i < carePlanItems.length; i++) {
                             if (!carePlanSelected.has(i)) continue
                             const item = carePlanItems[i]
@@ -458,10 +458,10 @@ export function PlantDetail() {
                         </select>
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-stone-600 mb-1">间隔（天）</label>
+                        <label className="block text-xs font-medium text-stone-600 mb-1">间隔（天，0=一次性）</label>
                         <input
                           type="number"
-                          min="1"
+                          min="0"
                           value={editingScheduleIntervalDays}
                           onChange={(e) => setEditingScheduleIntervalDays(e.target.value)}
                           className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
@@ -503,7 +503,7 @@ export function PlantDetail() {
                         type="button"
                         onClick={async () => {
                           const days = Number(editingScheduleIntervalDays)
-                          if (!Number.isFinite(days) || days < 1) return
+                          if (!Number.isFinite(days) || days < 0) return
                           await updateCareSchedule(s.id, {
                             taskType: editingScheduleTaskType,
                             intervalDays: days,
@@ -535,7 +535,7 @@ export function PlantDetail() {
                     <span className={`rounded px-2 py-0.5 text-xs ${s.scope === 'plant' ? 'bg-blue-100 text-blue-700' : 'bg-stone-100 text-stone-600'}`}>
                       {s.scope === 'plant' ? '仅此植株' : '同品种共享'}
                     </span>
-                    <span className="text-stone-600 text-sm">每 {s.intervalDays} 天</span>
+                    <span className="text-stone-600 text-sm">{formatScheduleInterval(s.intervalDays)}</span>
                     {(s.startDate || s.endDate) && (
                       <span className="text-stone-500 text-xs">
                         {s.startDate ? `开始 ${formatDateOnlyFromDate(s.startDate)}` : '开始 即刻'}
@@ -948,7 +948,7 @@ function CareForm({
   onSuccess: () => void
   onCancel: () => void
 }) {
-  const [taskType, setTaskType] = useState<'watering' | 'fertilizing' | 'pruning' | 'repotting' | 'pest_control' | 'other'>('watering')
+  const [taskType, setTaskType] = useState<CareLog['taskType']>('watering')
   const [doneAt, setDoneAt] = useState(new Date().toISOString().slice(0, 16))
   const [notes, setNotes] = useState('')
 
@@ -1031,7 +1031,7 @@ function ScheduleForm({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     const days = Number(intervalDays)
-    if (days < 1) return
+    if (!Number.isFinite(days) || days < 0) return
     await addCareSchedule({
       plantId,
       scope,
@@ -1060,10 +1060,10 @@ function ScheduleForm({
           </select>
         </div>
         <div>
-          <label className="block text-xs font-medium text-stone-600 mb-1">间隔（天）</label>
+          <label className="block text-xs font-medium text-stone-600 mb-1">间隔（天，0=一次性）</label>
           <input
             type="number"
-            min="1"
+            min="0"
             value={intervalDays}
             onChange={(e) => setIntervalDays(e.target.value)}
             className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"

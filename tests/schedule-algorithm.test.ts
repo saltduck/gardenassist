@@ -56,6 +56,17 @@ describe('schedule algorithm', () => {
     expect(computeDueFromLast('2026-03-15', '2026-03-01', 7)).toBe('2026-03-08')
   })
 
+  it('interval 0 without log should be due today or at startDate', () => {
+    expect(computeNextDue('2026-03-15', null, 0)).toBe('2026-03-15')
+    expect(computeNextDue('2026-03-15', null, 0, '2026-03-20')).toBe('2026-03-20')
+    expect(computeDueFromLast('2026-03-15', null, 0)).toBe('2026-03-15')
+  })
+
+  it('interval 0 after completion should have no next due', () => {
+    expect(computeNextDue('2026-03-15', '2026-03-10', 0)).toBe(null)
+    expect(computeDueFromLast('2026-03-15', '2026-03-10', 0)).toBe(null)
+  })
+
   it('week range should not include today date', () => {
     expect(shouldIncludeInRange('week', '2026-03-15', '2026-03-21', '2026-03-15')).toBe(false)
     expect(shouldIncludeInRange('week', '2026-03-15', '2026-03-21', '2026-03-16')).toBe(true)

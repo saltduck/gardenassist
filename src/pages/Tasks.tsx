@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { getDueTasks, addCareLog, deleteCareSchedule, updateCareSchedule } from '../lib/storage-api'
+import { getDueTasks, addCareLog, addCareSkip, deleteCareSchedule, updateCareSchedule } from '../lib/storage-api'
 import type { DueTask } from '../lib/storage-api'
+import type { CareTaskType } from '../types/plant'
 import { CARE_TASK_TYPES } from '../types/plant'
 import { MarkdownView } from '../components/MarkdownView'
 import { MarkdownTextarea } from '../components/MarkdownTextarea'
@@ -14,17 +15,39 @@ function formatDate(dateStr: string) {
   })
 }
 
+/** 与日历格一致的本地当天 YYYY-MM-DD（与待办接口使用的本地日对齐） */
+function localTodayYmd() {
+  const n = new Date()
+  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`
+}
+
+/** 待办列表：任务种类标签配色（与「范围」蓝/灰标签区分，避免混淆） */
+const CARE_TASK_BADGE: Record<CareTaskType, string> = {
+  watering: 'bg-sky-100 text-sky-900 border border-sky-300',
+  fertilizing: 'bg-amber-100 text-amber-900 border border-amber-300',
+  pruning: 'bg-emerald-100 text-emerald-900 border border-emerald-300',
+  repotting: 'bg-orange-100 text-orange-900 border border-orange-300',
+  pest_control: 'bg-rose-100 text-rose-900 border border-rose-300',
+  mulch: 'bg-stone-200 text-stone-900 border border-stone-400',
+  mowing: 'bg-lime-100 text-lime-900 border border-lime-400',
+  other: 'bg-violet-100 text-violet-900 border border-violet-300',
+}
+
+function careTaskTypeBadgeClass(taskType: string): string {
+  return CARE_TASK_BADGE[taskType as CareTaskType] ?? 'bg-slate-100 text-slate-800 border border-slate-300'
+}
+
 function TaskRow({
   task,
-  onComplete,
+  onOpenComplete,
   onAfterChange,
 }: {
   task: DueTask
-  onComplete: () => void
+  onOpenComplete: () => void
   onAfterChange: () => void
 }) {
   const label = CARE_TASK_TYPES.find((t) => t.value === task.schedule.taskType)?.label ?? task.schedule.taskType
-  const isOverdue = task.nextDue < new Date().toISOString().slice(0, 10)
+  const isOverdue = task.nextDue < localTodayYmd()
   const [editing, setEditing] = useState(false)
   const [taskType, setTaskType] = useState(task.schedule.taskType)
   const [intervalDays, setIntervalDays] = useState(String(task.schedule.intervalDays))
@@ -41,7 +64,9 @@ function TaskRow({
         >
           {task.plant.name}
         </Link>
-        <span className="ml-2 rounded bg-amber-100 px-2 py-0.5 text-sm text-amber-700">
+        <span
+          className={`ml-2 inline-flex items-center rounded px-2 py-0.5 text-sm font-medium ${careTaskTypeBadgeClass(task.schedule.taskType)}`}
+        >
           {label}
         </span>
         <span className={`ml-2 rounded px-2 py-0.5 text-xs ${task.schedule.scope === 'plant' ? 'bg-blue-100 text-blue-700' : 'bg-stone-100 text-stone-600'}`}>
@@ -61,10 +86,29 @@ function TaskRow({
       <div className="mt-2 flex flex-wrap gap-2 justify-end">
         <button
           type="button"
-          onClick={onComplete}
+          onClick={onOpenComplete}
           className="shrink-0 rounded bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700"
         >
           完成
+        </button>
+        <button
+          type="button"
+          onClick={async () => {
+            const msg =
+              task.schedule.scope === 'shared'
+                ? '跳过本次到期任务（同品种共享计划）？跳过后会进入下一周期。'
+                : '跳过本次到期任务（仅此植株计划）？跳过后会进入下一周期。'
+            if (!window.confirm(msg)) return
+            await addCareSkip({
+              plantId: task.plant.id,
+              taskType: task.schedule.taskType,
+              skippedAt: `${task.nextDue}T12:00:00.000Z`,
+            })
+            onAfterChange()
+          }}
+          className="shrink-0 rounded border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-800 hover:bg-amber-100"
+        >
+          跳过
         </button>
         <button
           type="button"
@@ -112,10 +156,10 @@ function TaskRow({
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-stone-600 mb-1">间隔（天）</label>
+              <label className="block text-xs font-medium text-stone-600 mb-1">间隔（天，0=一次性）</label>
               <input
                 type="number"
-                min={1}
+                min={0}
                 value={intervalDays}
                 onChange={(e) => setIntervalDays(e.target.value)}
                 className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
@@ -157,7 +201,7 @@ function TaskRow({
               type="button"
               onClick={async () => {
                 const days = Number(intervalDays)
-                if (!Number.isFinite(days) || days < 1) return
+                if (!Number.isFinite(days) || days < 0) return
                 await updateCareSchedule(task.schedule.id, {
                   taskType,
                   intervalDays: days,
@@ -196,10 +240,12 @@ function TaskRow({
 export function Tasks() {
   const [todayTasks, setTodayTasks] = useState<DueTask[]>([])
   const [weekTasks, setWeekTasks] = useState<DueTask[]>([])
+  const [completeTask, setCompleteTask] = useState<DueTask | null>(null)
+  const [completeDate, setCompleteDate] = useState('')
 
   const refresh = async () => {
     const [today, week] = await Promise.all([getDueTasks('today'), getDueTasks('week')])
-    const todayStr = new Date().toISOString().slice(0, 10)
+    const todayStr = localTodayYmd()
     setTodayTasks(today)
     setWeekTasks(week.filter((t) => t.nextDue > todayStr))
   }
@@ -208,12 +254,14 @@ export function Tasks() {
     refresh()
   }, [])
 
-  const handleComplete = async (task: DueTask) => {
+  const submitComplete = async () => {
+    if (!completeTask || !completeDate) return
     await addCareLog({
-      plantId: task.plant.id,
-      taskType: task.schedule.taskType,
-      doneAt: new Date().toISOString(),
+      plantId: completeTask.plant.id,
+      taskType: completeTask.schedule.taskType,
+      doneAt: `${completeDate}T12:00:00.000Z`,
     })
+    setCompleteTask(null)
     refresh()
   }
 
@@ -234,7 +282,10 @@ export function Tasks() {
               <TaskRow
                 key={`${task.schedule.id}-${task.nextDue}`}
                 task={task}
-                onComplete={() => handleComplete(task)}
+                onOpenComplete={() => {
+                  setCompleteDate(localTodayYmd())
+                  setCompleteTask(task)
+                }}
                 onAfterChange={refresh}
               />
             ))}
@@ -254,13 +305,68 @@ export function Tasks() {
               <TaskRow
                 key={`${task.schedule.id}-${task.nextDue}`}
                 task={task}
-                onComplete={() => handleComplete(task)}
+                onOpenComplete={() => {
+                  setCompleteDate(localTodayYmd())
+                  setCompleteTask(task)
+                }}
                 onAfterChange={refresh}
               />
             ))}
           </ul>
         )}
       </section>
+
+      {completeTask && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="complete-task-title"
+          onClick={() => setCompleteTask(null)}
+        >
+          <div
+            className="w-full max-w-sm rounded-lg border border-stone-200 bg-white p-4 shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="complete-task-title" className="text-lg font-medium text-stone-800 mb-1">
+              标记完成
+            </h2>
+            <p className="text-sm text-stone-600 mb-3 flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span className="font-medium text-stone-800">{completeTask.plant.name}</span>
+              <span>·</span>
+              <span
+                className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-medium ${careTaskTypeBadgeClass(completeTask.schedule.taskType)}`}
+              >
+                {CARE_TASK_TYPES.find((t) => t.value === completeTask.schedule.taskType)?.label ??
+                  completeTask.schedule.taskType}
+              </span>
+            </p>
+            <label className="block text-xs font-medium text-stone-600 mb-1">完成日期</label>
+            <input
+              type="date"
+              value={completeDate}
+              onChange={(e) => setCompleteDate(e.target.value)}
+              className="mb-4 w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setCompleteTask(null)}
+                className="rounded border border-stone-300 px-3 py-1.5 text-sm hover:bg-stone-100"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => void submitComplete()}
+                className="rounded bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700"
+              >
+                确认完成
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
