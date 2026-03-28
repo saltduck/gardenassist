@@ -2,7 +2,7 @@
  * 数据层：只请求 /api/data/*（D1）。不再使用 localStorage。
  * 所有方法均为 async，组件需在 useEffect 中调用并 setState。
  */
-import type { Plant, GrowthRecord, CareLog, CareSchedule } from '../types/plant'
+import type { Plant, GrowthRecord, CareLog, CareSchedule, CareSkip } from '../types/plant'
 import type { DailyWeather, DueTask, TimelineItem } from '../types/data'
 
 const API_BASE = '/api/data'
@@ -72,6 +72,13 @@ export async function getCareLogsByPlantId(plantId: string): Promise<CareLog[]> 
 
 export async function addCareLog(input: Omit<CareLog, 'id' | 'createdAt'>): Promise<CareLog> {
   return await fetchJson<CareLog>(`/plants/${input.plantId}/care-logs`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export async function addCareSkip(input: Omit<CareSkip, 'id' | 'createdAt'>): Promise<CareSkip> {
+  return await fetchJson<CareSkip>(`/plants/${input.plantId}/care-skips`, {
     method: 'POST',
     body: JSON.stringify(input),
   })
