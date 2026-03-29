@@ -21,6 +21,16 @@ function localTodayYmd() {
   return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`
 }
 
+function dueRowKey(task: DueTask): string {
+  return `${task.schedule.id}-${task.nextDue}`
+}
+
+async function fetchDueTaskLists(): Promise<{ today: DueTask[]; week: DueTask[] }> {
+  const [today, week] = await Promise.all([getDueTasks('today'), getDueTasks('week')])
+  const todayStr = localTodayYmd()
+  return { today, week: week.filter((t) => t.nextDue > todayStr) }
+}
+
 /** 待办列表：任务种类标签配色（与「范围」蓝/灰标签区分，避免混淆） */
 const CARE_TASK_BADGE: Record<CareTaskType, string> = {
   watering: 'bg-sky-100 text-sky-900 border border-sky-300',
@@ -242,12 +252,13 @@ export function Tasks() {
   const [weekTasks, setWeekTasks] = useState<DueTask[]>([])
   const [completeTask, setCompleteTask] = useState<DueTask | null>(null)
   const [completeDate, setCompleteDate] = useState('')
+  const [completeSubmitting, setCompleteSubmitting] = useState(false)
+  const [completeError, setCompleteError] = useState<string | null>(null)
 
   const refresh = async () => {
-    const [today, week] = await Promise.all([getDueTasks('today'), getDueTasks('week')])
-    const todayStr = localTodayYmd()
+    const { today, week } = await fetchDueTaskLists()
     setTodayTasks(today)
-    setWeekTasks(week.filter((t) => t.nextDue > todayStr))
+    setWeekTasks(week)
   }
 
   useEffect(() => {
@@ -255,14 +266,46 @@ export function Tasks() {
   }, [])
 
   const submitComplete = async () => {
-    if (!completeTask || !completeDate) return
-    await addCareLog({
-      plantId: completeTask.plant.id,
-      taskType: completeTask.schedule.taskType,
-      doneAt: `${completeDate}T12:00:00.000Z`,
-    })
+    const task = completeTask
+    if (!task || !completeDate || completeSubmitting) return
+    const rowKey = dueRowKey(task)
+    setCompleteError(null)
+    setCompleteSubmitting(true)
+    try {
+      await addCareLog({
+        plantId: task.plant.id,
+        taskType: task.schedule.taskType,
+        doneAt: `${completeDate}T12:00:00.000Z`,
+      })
+    } catch (e) {
+      setCompleteError(e instanceof Error ? e.message : '标记完成失败')
+      return
+    }
+
     setCompleteTask(null)
-    refresh()
+    setTodayTasks((prev) => prev.filter((t) => dueRowKey(t) !== rowKey))
+    setWeekTasks((prev) => prev.filter((t) => dueRowKey(t) !== rowKey))
+    try {
+      let { today, week } = await fetchDueTaskLists()
+      setTodayTasks(today)
+      setWeekTasks(week)
+      const still =
+        today.some((t) => dueRowKey(t) === rowKey) || week.some((t) => dueRowKey(t) === rowKey)
+      if (still) {
+        await new Promise((r) => setTimeout(r, 500))
+        ;({ today, week } = await fetchDueTaskLists())
+        setTodayTasks(today)
+        setWeekTasks(week)
+      }
+    } catch {
+      try {
+        await refresh()
+      } catch {
+        /* 列表同步失败时至少已做乐观移除 */
+      }
+    } finally {
+      setCompleteSubmitting(false)
+    }
   }
 
   return (
@@ -283,6 +326,7 @@ export function Tasks() {
                 key={`${task.schedule.id}-${task.nextDue}`}
                 task={task}
                 onOpenComplete={() => {
+                  setCompleteError(null)
                   setCompleteDate(localTodayYmd())
                   setCompleteTask(task)
                 }}
@@ -306,6 +350,7 @@ export function Tasks() {
                 key={`${task.schedule.id}-${task.nextDue}`}
                 task={task}
                 onOpenComplete={() => {
+                  setCompleteError(null)
                   setCompleteDate(localTodayYmd())
                   setCompleteTask(task)
                 }}
@@ -322,7 +367,9 @@ export function Tasks() {
           role="dialog"
           aria-modal="true"
           aria-labelledby="complete-task-title"
-          onClick={() => setCompleteTask(null)}
+          onClick={() => {
+            if (!completeSubmitting) setCompleteTask(null)
+          }}
         >
           <div
             className="w-full max-w-sm rounded-lg border border-stone-200 bg-white p-4 shadow-lg"
@@ -346,22 +393,28 @@ export function Tasks() {
               type="date"
               value={completeDate}
               onChange={(e) => setCompleteDate(e.target.value)}
-              className="mb-4 w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
+              disabled={completeSubmitting}
+              className="mb-2 w-full rounded border border-stone-300 px-2 py-1.5 text-sm disabled:opacity-60"
             />
+            {completeError && <p className="mb-3 text-xs text-red-600">{completeError}</p>}
             <div className="flex justify-end gap-2">
               <button
                 type="button"
-                onClick={() => setCompleteTask(null)}
-                className="rounded border border-stone-300 px-3 py-1.5 text-sm hover:bg-stone-100"
+                disabled={completeSubmitting}
+                onClick={() => {
+                  if (!completeSubmitting) setCompleteTask(null)
+                }}
+                className="rounded border border-stone-300 px-3 py-1.5 text-sm hover:bg-stone-100 disabled:opacity-50"
               >
                 取消
               </button>
               <button
                 type="button"
+                disabled={completeSubmitting}
                 onClick={() => void submitComplete()}
-                className="rounded bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700"
+                className="rounded bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
               >
-                确认完成
+                {completeSubmitting ? '提交中…' : '确认完成'}
               </button>
             </div>
           </div>
