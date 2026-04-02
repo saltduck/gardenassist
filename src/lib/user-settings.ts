@@ -16,7 +16,7 @@ export async function getUserSettings(): Promise<AppSettings> {
   try {
     return await fetchJson<AppSettings>('/settings')
   } catch {
-    return { location: '' }
+    return { location: '', timeZone: '' }
   }
 }
 

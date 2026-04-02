@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { getDueTasks, addCareLog, addCareSkip, deleteCareSchedule, updateCareSchedule } from '../lib/storage-api'
 import type { DueTask } from '../lib/storage-api'
@@ -6,6 +6,8 @@ import type { CareTaskType } from '../types/plant'
 import { CARE_TASK_TYPES } from '../types/plant'
 import { MarkdownView } from '../components/MarkdownView'
 import { MarkdownTextarea } from '../components/MarkdownTextarea'
+import { getUserSettings } from '../lib/user-settings'
+import { getBrowserIanaTimeZone, getTimeZoneOffsetMinutes, resolveCalendarTimeZone, toYmdInTimeZone } from '../lib/calendar-timezone'
 
 function formatDate(dateStr: string) {
   return new Date(dateStr + 'T12:00:00').toLocaleDateString('zh-CN', {
@@ -15,20 +17,33 @@ function formatDate(dateStr: string) {
   })
 }
 
-/** 与日历格一致的本地当天 YYYY-MM-DD（与待办接口使用的本地日对齐） */
-function localTodayYmd() {
-  const n = new Date()
-  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`
-}
-
 function dueRowKey(task: DueTask): string {
   return `${task.schedule.id}-${task.nextDue}`
 }
 
-async function fetchDueTaskLists(): Promise<{ today: DueTask[]; week: DueTask[] }> {
-  const [today, week] = await Promise.all([getDueTasks('today'), getDueTasks('week')])
-  const todayStr = localTodayYmd()
+async function fetchDueTaskLists(tzOffsetMinutes: number, todayStr: string): Promise<{ today: DueTask[]; week: DueTask[] }> {
+  const [today, week] = await Promise.all([getDueTasks('today', tzOffsetMinutes), getDueTasks('week', tzOffsetMinutes)])
   return { today, week: week.filter((t) => t.nextDue > todayStr) }
+}
+
+/**
+ * 合并服务端列表：短时内隐藏「刚标记完成」的行，避免读滞后把旧数据 setState 回去。
+ */
+function consumeFetchedDueLists(
+  todayRaw: DueTask[],
+  weekRaw: DueTask[],
+  hideRef: { current: Set<string> },
+  setToday: (v: DueTask[]) => void,
+  setWeek: (v: DueTask[]) => void
+): void {
+  const hide = hideRef.current
+  for (const key of [...hide]) {
+    const stillInResponse =
+      todayRaw.some((t) => dueRowKey(t) === key) || weekRaw.some((t) => dueRowKey(t) === key)
+    if (!stillInResponse) hide.delete(key)
+  }
+  setToday(todayRaw.filter((t) => !hide.has(dueRowKey(t))))
+  setWeek(weekRaw.filter((t) => !hide.has(dueRowKey(t))))
 }
 
 /** 待办列表：任务种类标签配色（与「范围」蓝/灰标签区分，避免混淆） */
@@ -49,15 +64,17 @@ function careTaskTypeBadgeClass(taskType: string): string {
 
 function TaskRow({
   task,
+  todayStr,
   onOpenComplete,
   onAfterChange,
 }: {
   task: DueTask
+  todayStr: string
   onOpenComplete: () => void
   onAfterChange: () => void
 }) {
   const label = CARE_TASK_TYPES.find((t) => t.value === task.schedule.taskType)?.label ?? task.schedule.taskType
-  const isOverdue = task.nextDue < localTodayYmd()
+  const isOverdue = task.nextDue < todayStr
   const [editing, setEditing] = useState(false)
   const [taskType, setTaskType] = useState(task.schedule.taskType)
   const [intervalDays, setIntervalDays] = useState(String(task.schedule.intervalDays))
@@ -248,6 +265,9 @@ function TaskRow({
 }
 
 export function Tasks() {
+  const [calendarTz, setCalendarTz] = useState(getBrowserIanaTimeZone())
+  const [tzOffsetMinutes, setTzOffsetMinutes] = useState(new Date().getTimezoneOffset())
+  const [todayStr, setTodayStr] = useState(toYmdInTimeZone(new Date(), getBrowserIanaTimeZone()))
   const [todayTasks, setTodayTasks] = useState<DueTask[]>([])
   const [weekTasks, setWeekTasks] = useState<DueTask[]>([])
   const [completeTask, setCompleteTask] = useState<DueTask | null>(null)
@@ -255,15 +275,47 @@ export function Tasks() {
   const [completeSubmitting, setCompleteSubmitting] = useState(false)
   const [completeError, setCompleteError] = useState<string | null>(null)
 
-  const refresh = async () => {
-    const { today, week } = await fetchDueTaskLists()
-    setTodayTasks(today)
-    setWeekTasks(week)
-  }
+  /** 刚完成但服务端读仍可能滞后的行键，合并任意一次拉列表时都会先隐藏 */
+  const pendingHideRowKeysRef = useRef<Set<string>>(new Set())
+
+  const applyFetched = useCallback(
+    (todayRaw: DueTask[], weekRaw: DueTask[]) => {
+      consumeFetchedDueLists(todayRaw, weekRaw, pendingHideRowKeysRef, setTodayTasks, setWeekTasks)
+    },
+    [setTodayTasks, setWeekTasks]
+  )
+
+  const refresh = useCallback(async () => {
+    const { today, week } = await fetchDueTaskLists(tzOffsetMinutes, todayStr)
+    applyFetched(today, week)
+  }, [tzOffsetMinutes, todayStr, applyFetched])
 
   useEffect(() => {
-    refresh()
+    getUserSettings()
+      .then((s) => {
+        const tz = resolveCalendarTimeZone(s)
+        setCalendarTz(tz)
+        setTzOffsetMinutes(getTimeZoneOffsetMinutes(tz))
+        setTodayStr(toYmdInTimeZone(new Date(), tz))
+      })
+      .catch(() => {})
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const { today, week } = await fetchDueTaskLists(tzOffsetMinutes, todayStr)
+        if (cancelled) return
+        applyFetched(today, week)
+      } catch {
+        /* 忽略 */ 
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [tzOffsetMinutes, todayStr, applyFetched])
 
   const submitComplete = async () => {
     const task = completeTask
@@ -279,29 +331,31 @@ export function Tasks() {
       })
     } catch (e) {
       setCompleteError(e instanceof Error ? e.message : '标记完成失败')
+      setCompleteSubmitting(false)
       return
     }
 
+    pendingHideRowKeysRef.current.add(rowKey)
+    window.setTimeout(() => pendingHideRowKeysRef.current.delete(rowKey), 25_000)
+
     setCompleteTask(null)
-    setTodayTasks((prev) => prev.filter((t) => dueRowKey(t) !== rowKey))
-    setWeekTasks((prev) => prev.filter((t) => dueRowKey(t) !== rowKey))
+    setTodayTasks((prev) => prev.filter((t) => !pendingHideRowKeysRef.current.has(dueRowKey(t))))
+    setWeekTasks((prev) => prev.filter((t) => !pendingHideRowKeysRef.current.has(dueRowKey(t))))
+
     try {
-      let { today, week } = await fetchDueTaskLists()
-      setTodayTasks(today)
-      setWeekTasks(week)
-      const still =
-        today.some((t) => dueRowKey(t) === rowKey) || week.some((t) => dueRowKey(t) === rowKey)
-      if (still) {
-        await new Promise((r) => setTimeout(r, 500))
-        ;({ today, week } = await fetchDueTaskLists())
-        setTodayTasks(today)
-        setWeekTasks(week)
+      for (let attempt = 0; attempt < 5; attempt++) {
+        if (attempt > 0) await new Promise((r) => setTimeout(r, 300 * attempt))
+        const { today, week } = await fetchDueTaskLists(tzOffsetMinutes, todayStr)
+        applyFetched(today, week)
+        const rawStill =
+          today.some((t) => dueRowKey(t) === rowKey) || week.some((t) => dueRowKey(t) === rowKey)
+        if (!rawStill) break
       }
     } catch {
       try {
         await refresh()
       } catch {
-        /* 列表同步失败时至少已做乐观移除 */
+        /* 已由 hide 集保证列表不显式拉回完成任务 */
       }
     } finally {
       setCompleteSubmitting(false)
@@ -312,6 +366,7 @@ export function Tasks() {
     <div>
       <h1 className="text-2xl font-semibold text-stone-800 mb-2">待办任务</h1>
       <p className="text-stone-600 mb-6">按养护计划生成的今日与本周到期任务</p>
+      <p className="text-xs text-stone-500 mb-4">日期计算时区：{calendarTz}</p>
 
       <section className="mb-8">
         <h2 className="text-lg font-medium text-stone-800 mb-3">今日待办</h2>
@@ -325,9 +380,10 @@ export function Tasks() {
               <TaskRow
                 key={`${task.schedule.id}-${task.nextDue}`}
                 task={task}
+                todayStr={todayStr}
                 onOpenComplete={() => {
                   setCompleteError(null)
-                  setCompleteDate(localTodayYmd())
+                  setCompleteDate(todayStr)
                   setCompleteTask(task)
                 }}
                 onAfterChange={refresh}
@@ -349,9 +405,10 @@ export function Tasks() {
               <TaskRow
                 key={`${task.schedule.id}-${task.nextDue}`}
                 task={task}
+                todayStr={todayStr}
                 onOpenComplete={() => {
                   setCompleteError(null)
-                  setCompleteDate(localTodayYmd())
+                  setCompleteDate(todayStr)
                   setCompleteTask(task)
                 }}
                 onAfterChange={refresh}

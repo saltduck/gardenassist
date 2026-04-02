@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom'
 import { getAllPlants, getTodayDueCount, getRecentCareLogs } from '../lib/storage-api'
 import type { Plant } from '../types/plant'
 import { CARE_TASK_TYPES } from '../types/plant'
+import { getUserSettings } from '../lib/user-settings'
+import { getBrowserIanaTimeZone, getTimeZoneOffsetMinutes, resolveCalendarTimeZone } from '../lib/calendar-timezone'
 
 function formatDateOnly(iso: string) {
   return new Date(iso).toLocaleDateString('zh-CN', {
@@ -14,12 +16,22 @@ function formatDateOnly(iso: string) {
 export function Dashboard() {
   const [plants, setPlants] = useState<Plant[]>([])
   const [todayDue, setTodayDue] = useState(0)
+  const [calendarTz, setCalendarTz] = useState(getBrowserIanaTimeZone())
   const [recentLogs, setRecentLogs] = useState<Array<{ log: { id: string; taskType: string; doneAt: string }; plant: Plant | undefined }>>([])
 
   useEffect(() => {
     getAllPlants().then(setPlants)
-    getTodayDueCount().then(setTodayDue)
     getRecentCareLogs(5).then(setRecentLogs)
+    getUserSettings()
+      .then((s) => {
+        const tz = resolveCalendarTimeZone(s)
+        setCalendarTz(tz)
+        return getTodayDueCount(getTimeZoneOffsetMinutes(tz))
+      })
+      .then(setTodayDue)
+      .catch(() => {
+        getTodayDueCount().then(setTodayDue).catch(() => {})
+      })
   }, [])
 
   return (
@@ -38,6 +50,7 @@ export function Dashboard() {
         <section className="rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
           <h2 className="text-lg font-medium text-stone-700 mb-1">今日待办</h2>
           <p className="text-3xl font-semibold text-amber-600">{todayDue}</p>
+          <p className="text-xs text-stone-500 mt-1">按时区 {calendarTz}</p>
           <Link to="/tasks" className="mt-2 inline-block text-sm text-emerald-600 hover:underline">
             去处理 →
           </Link>

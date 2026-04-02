@@ -14,6 +14,8 @@ export interface DueTask {
 
 export interface AppSettings {
   location: string
+  /** IANA 时区，如 Asia/Shanghai；空则按所在地推断，再退回浏览器时区 */
+  timeZone: string
 }
 
 /** 某日气温与降水（YYYY-MM-DD，与日历格一致） */

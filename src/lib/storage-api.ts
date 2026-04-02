@@ -129,19 +129,28 @@ export async function getTimelineByPlantId(plantId: string): Promise<TimelineIte
   return await fetchJson<TimelineItem[]>(`/plants/${plantId}/timeline`)
 }
 
-export async function getDueTasks(range: 'today' | 'week'): Promise<DueTask[]> {
-  const tzOffsetMinutes = new Date().getTimezoneOffset()
-  return await fetchJson<DueTask[]>(`/tasks/due?range=${range}&tzOffsetMinutes=${encodeURIComponent(String(tzOffsetMinutes))}`)
+export async function getDueTasks(range: 'today' | 'week', tzOffsetMinutes?: number): Promise<DueTask[]> {
+  const tz =
+    tzOffsetMinutes !== undefined && Number.isFinite(tzOffsetMinutes)
+      ? tzOffsetMinutes
+      : new Date().getTimezoneOffset()
+  return await fetchJson<DueTask[]>(`/tasks/due?range=${range}&tzOffsetMinutes=${encodeURIComponent(String(tz))}`)
 }
 
-export async function getTodayDueCount(): Promise<number> {
-  const tzOffsetMinutes = new Date().getTimezoneOffset()
-  return await fetchJson<number>(`/tasks/today-count?tzOffsetMinutes=${encodeURIComponent(String(tzOffsetMinutes))}`)
+export async function getTodayDueCount(tzOffsetMinutes?: number): Promise<number> {
+  const tz =
+    tzOffsetMinutes !== undefined && Number.isFinite(tzOffsetMinutes)
+      ? tzOffsetMinutes
+      : new Date().getTimezoneOffset()
+  return await fetchJson<number>(`/tasks/today-count?tzOffsetMinutes=${encodeURIComponent(String(tz))}`)
 }
 
-export async function getDueTasksForDate(dateStr: string): Promise<DueTask[]> {
-  const tzOffsetMinutes = new Date().getTimezoneOffset()
-  return await fetchJson<DueTask[]>(`/tasks/due/${dateStr}?tzOffsetMinutes=${encodeURIComponent(String(tzOffsetMinutes))}`)
+export async function getDueTasksForDate(dateStr: string, tzOffsetMinutes?: number): Promise<DueTask[]> {
+  const tz =
+    tzOffsetMinutes !== undefined && Number.isFinite(tzOffsetMinutes)
+      ? tzOffsetMinutes
+      : new Date().getTimezoneOffset()
+  return await fetchJson<DueTask[]>(`/tasks/due/${dateStr}?tzOffsetMinutes=${encodeURIComponent(String(tz))}`)
 }
 
 export async function getCareLogsForDate(dateStr: string): Promise<CareLog[]> {

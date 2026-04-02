@@ -201,19 +201,22 @@ export const onRequest = async (context: Context) => {
         .bind(user.id)
         .all()
       const row = (results as any[])[0]
-      return Response.json({ location: row?.location ?? '' }, { headers: CORS })
+      return Response.json({ location: row?.location ?? '', timeZone: row?.time_zone ?? '' }, { headers: CORS })
     }
 
     // PUT /api/data/settings
     if (path === 'settings' && method === 'PUT') {
       const body = (await request.json()) as any
       const location = typeof body.location === 'string' ? body.location : ''
+      const timeZone = typeof body.timeZone === 'string' ? body.timeZone : ''
       const now = new Date().toISOString()
       await env.DB
-        .prepare('INSERT OR REPLACE INTO user_settings (user_id, location, updated_at) VALUES (?, ?, ?)')
-        .bind(user.id, location, now)
+        .prepare(
+          'INSERT OR REPLACE INTO user_settings (user_id, location, time_zone, updated_at) VALUES (?, ?, ?, ?)'
+        )
+        .bind(user.id, location, timeZone, now)
         .run()
-      return Response.json({ location }, { headers: CORS })
+      return Response.json({ location, timeZone }, { headers: CORS })
     }
 
     // POST /api/data/import - 批量导入（用于从 localStorage 同步到 D1）

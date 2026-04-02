@@ -12,23 +12,15 @@ import type { DueTask } from '../lib/storage-api'
 import type { DailyWeather } from '../types/data'
 import type { CareLog, Plant } from '../types/plant'
 import { CARE_TASK_TYPES } from '../types/plant'
-
-function toDateOnly(d: Date): string {
-  return d.toISOString().slice(0, 10)
-}
-
-function getMonthGrid(year: number, month: number): (string | null)[] {
-  const first = new Date(year, month, 1)
-  const last = new Date(year, month + 1, 0)
-  const startWeekday = first.getDay()
-  const daysInMonth = last.getDate()
-  const grid: (string | null)[] = []
-  for (let i = 0; i < startWeekday; i++) grid.push(null)
-  for (let d = 1; d <= daysInMonth; d++) {
-    grid.push(`${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`)
-  }
-  return grid
-}
+import { getUserSettings } from '../lib/user-settings'
+import {
+  civilDateToRepresentativeInstant,
+  getBrowserIanaTimeZone,
+  getMonthGridInTimeZone,
+  getTimeZoneOffsetMinutes,
+  resolveCalendarTimeZone,
+  toYmdInTimeZone,
+} from '../lib/calendar-timezone'
 
 const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六']
 
@@ -46,10 +38,13 @@ function tempLine(w: DailyWeather | undefined): string | null {
 }
 
 export function Calendar() {
-  const now = new Date()
-  const [year, setYear] = useState(now.getFullYear())
-  const [month, setMonth] = useState(now.getMonth())
-  const [selectedDate, setSelectedDate] = useState<string | null>(toDateOnly(now))
+  const browserTz = getBrowserIanaTimeZone()
+  const initialYmd = toYmdInTimeZone(new Date(), browserTz)
+  const [iy, im] = initialYmd.split('-').map(Number)
+  const [year, setYear] = useState(iy)
+  const [month, setMonth] = useState(im - 1)
+  const [selectedDate, setSelectedDate] = useState<string | null>(initialYmd)
+  const [calendarTz, setCalendarTz] = useState(browserTz)
   const [plants, setPlants] = useState<Plant[]>([])
   const [dueTasksByDate, setDueTasksByDate] = useState<Record<string, DueTask[]>>({})
   const [logsByDate, setLogsByDate] = useState<Record<string, CareLog[]>>({})
@@ -61,7 +56,13 @@ export function Calendar() {
   const [weatherSaving, setWeatherSaving] = useState(false)
   const [weatherFormError, setWeatherFormError] = useState<string | null>(null)
 
-  const grid = useMemo(() => getMonthGrid(year, month), [year, month])
+  const grid = useMemo(() => getMonthGridInTimeZone(year, month, calendarTz), [year, month, calendarTz])
+
+  useEffect(() => {
+    getUserSettings()
+      .then((s) => setCalendarTz(resolveCalendarTimeZone(s)))
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     getAllPlants().then(setPlants)
@@ -70,9 +71,10 @@ export function Calendar() {
   useEffect(() => {
     const days = grid.filter((d): d is string => d !== null)
     if (days.length === 0) return
+    const tzOff = getTimeZoneOffsetMinutes(calendarTz)
     Promise.all(
       days.map(async (d) => {
-        const [due, logs] = await Promise.all([getDueTasksForDate(d), getCareLogsForDate(d)])
+        const [due, logs] = await Promise.all([getDueTasksForDate(d, tzOff), getCareLogsForDate(d)])
         return { d, due, logs }
       })
     ).then((results) => {
@@ -85,7 +87,7 @@ export function Calendar() {
       setDueTasksByDate(dueMap)
       setLogsByDate(logsMap)
     })
-  }, [grid])
+  }, [grid, calendarTz])
 
   useEffect(() => {
     const days = grid.filter((d): d is string => d !== null)
@@ -189,18 +191,31 @@ export function Calendar() {
     } else setMonth((m) => m + 1)
   }
   const goToday = () => {
-    const t = new Date()
-    setYear(t.getFullYear())
-    setMonth(t.getMonth())
-    setSelectedDate(toDateOnly(t))
+    const ymd = toYmdInTimeZone(new Date(), calendarTz)
+    const [y, m] = ymd.split('-').map(Number)
+    setYear(y)
+    setMonth(m - 1)
+    setSelectedDate(ymd)
   }
 
-  const todayStr = toDateOnly(new Date())
+  const todayStr = toYmdInTimeZone(new Date(), calendarTz)
+
+  const selectedWeekdayLabel =
+    selectedDate != null
+      ? (() => {
+          const [sy, sm, sd] = selectedDate.split('-').map(Number)
+          const zd = civilDateToRepresentativeInstant(sy, sm - 1, sd, calendarTz)
+          return zd.toLocaleDateString('zh-CN', { weekday: 'long', timeZone: calendarTz })
+        })()
+      : ''
 
   return (
     <div>
       <h1 className="text-2xl font-semibold text-stone-800 mb-2">日历</h1>
-      <p className="text-stone-600 mb-6">按日查看养护计划、完成记录，以及当日气温与降水</p>
+      <p className="text-stone-600 mb-2">按日查看养护计划、完成记录，以及当日气温与降水</p>
+      <p className="text-xs text-stone-500 mb-6">
+        「今天」、月历对齐与当日到期任务均按设置中的所在地/时区解析（当前：{calendarTz}）。可在「设置」中修改。
+      </p>
 
       <div className="flex flex-col lg:flex-row gap-6">
         <section className="rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
@@ -305,7 +320,7 @@ export function Calendar() {
         {selectedDate && (
           <section className="rounded-lg border border-stone-200 bg-white p-4 shadow-sm min-w-[280px]">
             <h2 className="text-lg font-medium text-stone-800 mb-3">
-              {selectedDate}（{new Date(selectedDate + 'T12:00:00').toLocaleDateString('zh-CN', { weekday: 'long' })}）
+              {selectedDate}（{selectedWeekdayLabel}）
             </h2>
             <div className="space-y-4">
               <div>

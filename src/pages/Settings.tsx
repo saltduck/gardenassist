@@ -2,6 +2,21 @@ import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { getUserSettings, setUserSettings } from '../lib/user-settings'
 import { changePassword } from '../lib/auth-api'
+import { PRESET_LOCATION_TO_TIMEZONE } from '../lib/calendar-timezone'
+
+const CALENDAR_TIMEZONE_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: '', label: '自动（按所在地推断；无法识别则用本机时区）' },
+  { value: 'Asia/Shanghai', label: 'Asia/Shanghai（中国·东八区）' },
+  { value: 'Asia/Singapore', label: 'Asia/Singapore' },
+  { value: 'Asia/Tokyo', label: 'Asia/Tokyo' },
+  { value: 'America/Los_Angeles', label: 'America/Los_Angeles' },
+  { value: 'America/New_York', label: 'America/New_York' },
+  { value: 'America/Vancouver', label: 'America/Vancouver' },
+  { value: 'Europe/London', label: 'Europe/London' },
+  { value: 'Europe/Berlin', label: 'Europe/Berlin' },
+  { value: 'Australia/Sydney', label: 'Australia/Sydney' },
+  { value: 'UTC', label: 'UTC' },
+]
 
 const PRESETS = [
   '',
@@ -25,6 +40,7 @@ const PRESETS = [
 export function Settings() {
   const [preset, setPreset] = useState('')
   const [location, setLocation] = useState('')
+  const [timeZone, setTimeZone] = useState('')
   const [saved, setSaved] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -34,7 +50,11 @@ export function Settings() {
     setLoading(true)
     setError(null)
     getUserSettings()
-      .then((s) => { if (mounted) setLocation(s.location || '') })
+      .then((s) => {
+        if (!mounted) return
+        setLocation(s.location || '')
+        setTimeZone(s.timeZone || '')
+      })
       .catch((e) => { if (mounted) setError(e instanceof Error ? e.message : '加载失败') })
       .finally(() => { if (mounted) setLoading(false) })
     return () => { mounted = false }
@@ -43,7 +63,9 @@ export function Settings() {
   return (
     <div>
       <h1 className="text-2xl font-semibold text-stone-800 mb-2">设置</h1>
-      <p className="text-stone-600 mb-6">设置所在地后，AI 会结合当地季节/气候给出更贴近的养护建议。</p>
+      <p className="text-stone-600 mb-6">
+        设置所在地后，AI 会结合当地季节/气候给出更贴近的养护建议；日历「今天」与按日到期任务也会按下方时区（或从所在地推断）对齐。
+      </p>
 
       <section className="rounded-lg border border-stone-200 bg-white p-4 shadow-sm space-y-3">
         {loading && <p className="text-sm text-stone-500">加载中…</p>}
@@ -55,7 +77,11 @@ export function Settings() {
             onChange={(e) => {
               const v = e.target.value
               setPreset(v)
-              if (v) setLocation(v)
+              if (v) {
+                setLocation(v)
+                const tz = PRESET_LOCATION_TO_TIMEZONE[v]
+                if (tz) setTimeZone(tz)
+              }
             }}
             className="w-full rounded border border-stone-300 px-3 py-2 text-sm"
           >
@@ -78,6 +104,27 @@ export function Settings() {
           <p className="mt-1 text-xs text-stone-500">建议写到城市或地区级别，便于参考季节与气候差异。</p>
         </div>
 
+        <div>
+          <label className="block text-sm font-medium text-stone-700 mb-1">日历时区（IANA）</label>
+          <select
+            value={timeZone}
+            onChange={(e) => setTimeZone(e.target.value)}
+            className="w-full rounded border border-stone-300 px-3 py-2 text-sm"
+          >
+            {timeZone && !CALENDAR_TIMEZONE_OPTIONS.some((o) => o.value === timeZone) && (
+              <option value={timeZone}>{`${timeZone}（当前已保存）`}</option>
+            )}
+            {CALENDAR_TIMEZONE_OPTIONS.map((o) => (
+              <option key={o.value || '__auto'} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-stone-500">
+            选「自动」时：若所在地与快速选择一致会匹配到对应时区；否则使用浏览器本机时区。
+          </p>
+        </div>
+
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -85,7 +132,7 @@ export function Settings() {
             onClick={async () => {
               try {
                 setError(null)
-                await setUserSettings({ location: location.trim() })
+                await setUserSettings({ location: location.trim(), timeZone: timeZone.trim() })
                 setSaved(true)
                 setTimeout(() => setSaved(false), 1200)
               } catch (e) {
