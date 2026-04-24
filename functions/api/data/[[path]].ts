@@ -133,6 +133,12 @@ function normalizeVarietyKey(name: string, variety: string): string {
   return (v || n).trim().toLowerCase()
 }
 
+function resolveVarietyKeyFromPlantRow(row: any): string {
+  const raw = (row?.variety_key ?? '').toString().trim().toLowerCase()
+  if (raw) return raw
+  return normalizeVarietyKey(row?.name ?? '', row?.variety ?? '')
+}
+
 function parseScheduleRef(rawId: string): { scope: 'shared' | 'plant'; id: string } {
   if (rawId.startsWith('tpl:')) return { scope: 'shared', id: rawId.slice(4) }
   if (rawId.startsWith('plant:')) return { scope: 'plant', id: rawId.slice(6) }
@@ -460,7 +466,7 @@ export const onRequest = async (context: Context) => {
         .all()
       const prow = (plantRes.results as any[])[0]
       if (!prow) return Response.json({ error: 'Not found' }, { status: 404, headers: CORS })
-      const vkey = prow.variety_key ?? normalizeVarietyKey(prow.name ?? '', prow.variety ?? '')
+      const vkey = resolveVarietyKeyFromPlantRow(prow)
       const [templateRes, plantRes2] = await Promise.all([
         env.DB
           .prepare('SELECT * FROM care_schedule_templates WHERE user_id = ? AND variety_key = ? ORDER BY task_type')
@@ -482,7 +488,12 @@ export const onRequest = async (context: Context) => {
         .all()
       const prow = (plantRes.results as any[])[0]
       if (!prow) return Response.json({ error: 'Not found' }, { status: 404, headers: CORS })
-      const vkey = prow.variety_key ?? normalizeVarietyKey(prow.name ?? '', prow.variety ?? '')
+      const vkey = resolveVarietyKeyFromPlantRow(prow)
+      // 兼容历史数据：若植物 variety_key 为空串，回填为推导值，避免共享计划写入空 key 导致待办无法匹配
+      const rawPlantVkey = (prow.variety_key ?? '').toString().trim().toLowerCase()
+      if (!rawPlantVkey && vkey) {
+        await env.DB.prepare('UPDATE plants SET variety_key = ? WHERE id = ? AND user_id = ?').bind(vkey, id, user.id).run()
+      }
 
       const body = (await request.json()) as any
       const now = new Date().toISOString()
