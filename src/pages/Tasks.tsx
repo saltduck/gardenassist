@@ -337,26 +337,35 @@ export function Tasks() {
 
     pendingHideRowKeysRef.current.add(rowKey)
     window.setTimeout(() => pendingHideRowKeysRef.current.delete(rowKey), 25_000)
-
-    setCompleteTask(null)
+    // 先做乐观隐藏，但保持弹窗在“提交中”状态，直到刷新完成再关闭
     setTodayTasks((prev) => prev.filter((t) => !pendingHideRowKeysRef.current.has(dueRowKey(t))))
     setWeekTasks((prev) => prev.filter((t) => !pendingHideRowKeysRef.current.has(dueRowKey(t))))
 
     try {
+      let rowGone = false
       for (let attempt = 0; attempt < 5; attempt++) {
         if (attempt > 0) await new Promise((r) => setTimeout(r, 300 * attempt))
         const { today, week } = await fetchDueTaskLists(tzOffsetMinutes, todayStr)
         applyFetched(today, week)
         const rawStill =
           today.some((t) => dueRowKey(t) === rowKey) || week.some((t) => dueRowKey(t) === rowKey)
-        if (!rawStill) break
+        if (!rawStill) {
+          rowGone = true
+          break
+        }
       }
+      // 即便多次轮询仍读到旧数据，也不阻塞用户；hide 集会继续防止旧行被渲染回来
+      if (!rowGone) {
+        await refresh()
+      }
+      setCompleteTask(null)
     } catch {
       try {
         await refresh()
       } catch {
         /* 已由 hide 集保证列表不显式拉回完成任务 */
       }
+      setCompleteTask(null)
     } finally {
       setCompleteSubmitting(false)
     }
