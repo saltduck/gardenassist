@@ -6,6 +6,10 @@ export interface Plant {
   plantedAt: string // ISO date
   photoUrl?: string
   notes?: string
+  /** 归档时间（ISO）。存在表示该植物已归档，不再参与待办/提醒。 */
+  archivedAt?: string
+  /** 归档原因（如 death/moved/other）。 */
+  archiveReason?: 'death' | 'moved' | 'other'
   createdAt: string // ISO
   updatedAt: string // ISO
 }

@@ -53,6 +53,8 @@ function toPlant(row: any) {
     plantedAt: row.planted_at,
     photoUrl: row.photo_url ?? undefined,
     notes: row.notes ?? undefined,
+    archivedAt: row.archived_at ?? undefined,
+    archiveReason: row.archive_reason ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -193,8 +195,10 @@ export const onRequest = async (context: Context) => {
     try {
     // GET /api/data/plants
     if (path === 'plants' && method === 'GET') {
+      const includeArchived = url.searchParams.get('includeArchived') === '1'
+      const archivedFilter = includeArchived ? '' : ' AND archived_at IS NULL'
       const { results } = await env.DB
-        .prepare('SELECT * FROM plants WHERE user_id = ? ORDER BY created_at DESC')
+        .prepare(`SELECT * FROM plants WHERE user_id = ?${archivedFilter} ORDER BY created_at DESC`)
         .bind(user.id)
         .all()
       return Response.json(results.map(toPlant), { headers: CORS })
@@ -358,9 +362,11 @@ export const onRequest = async (context: Context) => {
       const nextPlantedAt = body.plantedAt !== undefined ? body.plantedAt : current.planted_at
       const nextPhotoUrl = body.photoUrl !== undefined ? body.photoUrl : current.photo_url
       const nextNotes = body.notes !== undefined ? body.notes : current.notes
+      const nextArchivedAt = body.archivedAt !== undefined ? body.archivedAt : current.archived_at
+      const nextArchiveReason = body.archiveReason !== undefined ? body.archiveReason : current.archive_reason
       const nextVarietyKey = normalizeVarietyKey(nextName ?? '', nextVariety ?? '')
       await env.DB.prepare(
-        'UPDATE plants SET name=?, variety=?, variety_key=?, location=?, planted_at=?, photo_url=?, notes=?, updated_at=? WHERE id=?'
+        'UPDATE plants SET name=?, variety=?, variety_key=?, location=?, planted_at=?, photo_url=?, notes=?, archived_at=?, archive_reason=?, updated_at=? WHERE id=?'
       )
         .bind(
           nextName ?? '',
@@ -370,6 +376,8 @@ export const onRequest = async (context: Context) => {
           nextPlantedAt ?? '',
           nextPhotoUrl ?? null,
           nextNotes ?? null,
+          nextArchivedAt ?? null,
+          nextArchiveReason ?? null,
           now,
           id
         )
@@ -671,21 +679,21 @@ export const onRequest = async (context: Context) => {
       const today = todayLocal(tzOffsetMinutes)
       const endOfWeek = addDays(today, 6)
       const [plantsRes, templatesRes, plantSchedulesRes, logsRes, skipsRes] = await Promise.all([
-        env.DB.prepare('SELECT * FROM plants WHERE user_id = ?').bind(user.id).all(),
+        env.DB.prepare('SELECT * FROM plants WHERE user_id = ? AND archived_at IS NULL').bind(user.id).all(),
         env.DB.prepare('SELECT * FROM care_schedule_templates WHERE user_id = ?').bind(user.id).all(),
         env.DB
-          .prepare('SELECT cs.* FROM care_schedules cs JOIN plants p ON cs.plant_id = p.id WHERE p.user_id = ?')
+          .prepare('SELECT cs.* FROM care_schedules cs JOIN plants p ON cs.plant_id = p.id WHERE p.user_id = ? AND p.archived_at IS NULL')
           .bind(user.id)
           .all(),
         env.DB
           .prepare(
-            'SELECT cl.* FROM care_logs cl JOIN plants p ON cl.plant_id = p.id WHERE p.user_id = ? ORDER BY cl.done_at DESC'
+            'SELECT cl.* FROM care_logs cl JOIN plants p ON cl.plant_id = p.id WHERE p.user_id = ? AND p.archived_at IS NULL ORDER BY cl.done_at DESC'
           )
           .bind(user.id)
           .all(),
         env.DB
           .prepare(
-            'SELECT cs.* FROM care_skips cs JOIN plants p ON cs.plant_id = p.id WHERE p.user_id = ? ORDER BY cs.skipped_at DESC'
+            'SELECT cs.* FROM care_skips cs JOIN plants p ON cs.plant_id = p.id WHERE p.user_id = ? AND p.archived_at IS NULL ORDER BY cs.skipped_at DESC'
           )
           .bind(user.id)
           .all(),
@@ -748,21 +756,21 @@ export const onRequest = async (context: Context) => {
     if (pathParts[0] === 'tasks' && pathParts[1] === 'today-count' && method === 'GET') {
       const today = todayLocal(tzOffsetMinutes)
       const [plantsRes, templatesRes, plantSchedulesRes, logsRes, skipsRes] = await Promise.all([
-        env.DB.prepare('SELECT * FROM plants WHERE user_id = ?').bind(user.id).all(),
+        env.DB.prepare('SELECT * FROM plants WHERE user_id = ? AND archived_at IS NULL').bind(user.id).all(),
         env.DB.prepare('SELECT * FROM care_schedule_templates WHERE user_id = ?').bind(user.id).all(),
         env.DB
-          .prepare('SELECT cs.* FROM care_schedules cs JOIN plants p ON cs.plant_id = p.id WHERE p.user_id = ?')
+          .prepare('SELECT cs.* FROM care_schedules cs JOIN plants p ON cs.plant_id = p.id WHERE p.user_id = ? AND p.archived_at IS NULL')
           .bind(user.id)
           .all(),
         env.DB
           .prepare(
-            'SELECT cl.* FROM care_logs cl JOIN plants p ON cl.plant_id = p.id WHERE p.user_id = ? ORDER BY cl.done_at DESC'
+            'SELECT cl.* FROM care_logs cl JOIN plants p ON cl.plant_id = p.id WHERE p.user_id = ? AND p.archived_at IS NULL ORDER BY cl.done_at DESC'
           )
           .bind(user.id)
           .all(),
         env.DB
           .prepare(
-            'SELECT cs.* FROM care_skips cs JOIN plants p ON cs.plant_id = p.id WHERE p.user_id = ? ORDER BY cs.skipped_at DESC'
+            'SELECT cs.* FROM care_skips cs JOIN plants p ON cs.plant_id = p.id WHERE p.user_id = ? AND p.archived_at IS NULL ORDER BY cs.skipped_at DESC'
           )
           .bind(user.id)
           .all(),
@@ -817,21 +825,21 @@ export const onRequest = async (context: Context) => {
       const dateStr = pathParts[2]
       const today = todayLocal(tzOffsetMinutes)
       const [plantsRes, templatesRes, plantSchedulesRes, logsRes, skipsRes] = await Promise.all([
-        env.DB.prepare('SELECT * FROM plants WHERE user_id = ?').bind(user.id).all(),
+        env.DB.prepare('SELECT * FROM plants WHERE user_id = ? AND archived_at IS NULL').bind(user.id).all(),
         env.DB.prepare('SELECT * FROM care_schedule_templates WHERE user_id = ?').bind(user.id).all(),
         env.DB
-          .prepare('SELECT cs.* FROM care_schedules cs JOIN plants p ON cs.plant_id = p.id WHERE p.user_id = ?')
+          .prepare('SELECT cs.* FROM care_schedules cs JOIN plants p ON cs.plant_id = p.id WHERE p.user_id = ? AND p.archived_at IS NULL')
           .bind(user.id)
           .all(),
         env.DB
           .prepare(
-            'SELECT cl.* FROM care_logs cl JOIN plants p ON cl.plant_id = p.id WHERE p.user_id = ? ORDER BY cl.done_at DESC'
+            'SELECT cl.* FROM care_logs cl JOIN plants p ON cl.plant_id = p.id WHERE p.user_id = ? AND p.archived_at IS NULL ORDER BY cl.done_at DESC'
           )
           .bind(user.id)
           .all(),
         env.DB
           .prepare(
-            'SELECT cs.* FROM care_skips cs JOIN plants p ON cs.plant_id = p.id WHERE p.user_id = ? ORDER BY cs.skipped_at DESC'
+            'SELECT cs.* FROM care_skips cs JOIN plants p ON cs.plant_id = p.id WHERE p.user_id = ? AND p.archived_at IS NULL ORDER BY cs.skipped_at DESC'
           )
           .bind(user.id)
           .all(),

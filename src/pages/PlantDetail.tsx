@@ -119,6 +119,25 @@ export function PlantDetail() {
     if (ok) navigate('/plants')
   }
 
+  const handleArchivePlant = async () => {
+    if (!id || !plant) return
+    const raw = window.prompt('归档原因：death=死亡，moved=迁走，other=其他', 'death')
+    if (raw == null) return
+    const reason = (raw.trim() || 'other') as 'death' | 'moved' | 'other'
+    if (!['death', 'moved', 'other'].includes(reason)) {
+      window.alert('原因仅支持：death / moved / other')
+      return
+    }
+    await updatePlant(id, { archivedAt: new Date().toISOString(), archiveReason: reason })
+    await refresh()
+  }
+
+  const handleUnarchivePlant = async () => {
+    if (!id || !plant) return
+    await updatePlant(id, { archivedAt: null, archiveReason: null })
+    await refresh()
+  }
+
   if (plant === null && id) {
     return (
       <div className="rounded-lg border border-stone-200 bg-white p-8 text-center">
@@ -143,6 +162,23 @@ export function PlantDetail() {
           ← 返回列表
         </Link>
         <div className="flex gap-2">
+          {plant.archivedAt ? (
+            <button
+              type="button"
+              onClick={handleUnarchivePlant}
+              className="rounded-md border border-emerald-200 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-50"
+            >
+              取消归档
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleArchivePlant}
+              className="rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-800 hover:bg-amber-100"
+            >
+              归档
+            </button>
+          )}
           <Link
             to={`/plants/${plant.id}/edit`}
             className="rounded-md border border-stone-300 px-3 py-1.5 text-sm font-medium text-stone-700 hover:bg-stone-100"
@@ -176,6 +212,11 @@ export function PlantDetail() {
             )}
             <div className="min-w-0 flex-1">
               <h1 className="text-2xl font-semibold text-stone-800">{plant.name}</h1>
+              {plant.archivedAt && (
+                <p className="mt-1 inline-flex items-center rounded bg-stone-200 px-2 py-0.5 text-xs text-stone-700">
+                  已归档（{plant.archiveReason ?? 'other'}）
+                </p>
+              )}
               {plant.variety && (
                 <p className="text-stone-600 mt-1">品种：{plant.variety}</p>
               )}

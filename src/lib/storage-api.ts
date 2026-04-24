@@ -18,8 +18,8 @@ async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
   return r.json()
 }
 
-export async function getAllPlants(): Promise<Plant[]> {
-  return await fetchJson<Plant[]>('/plants')
+export async function getAllPlants(includeArchived = false): Promise<Plant[]> {
+  return await fetchJson<Plant[]>(`/plants?includeArchived=${includeArchived ? '1' : '0'}`)
 }
 
 export async function getPlantById(id: string): Promise<Plant | undefined> {
@@ -33,7 +33,13 @@ export async function createPlant(input: Omit<Plant, 'id' | 'createdAt' | 'updat
   })
 }
 
-export async function updatePlant(id: string, input: Partial<Omit<Plant, 'id' | 'createdAt'>>): Promise<Plant | undefined> {
+export async function updatePlant(
+  id: string,
+  input: Partial<Omit<Plant, 'id' | 'createdAt' | 'archivedAt' | 'archiveReason'>> & {
+    archivedAt?: string | null
+    archiveReason?: 'death' | 'moved' | 'other' | null
+  }
+): Promise<Plant | undefined> {
   return await fetchJson<Plant>(`/plants/${id}`, {
     method: 'PUT',
     body: JSON.stringify(input),

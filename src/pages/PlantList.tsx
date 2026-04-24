@@ -6,10 +6,11 @@ import type { Plant } from '../types/plant'
 export function PlantList() {
   const [plants, setPlants] = useState<Plant[]>([])
   const [filter, setFilter] = useState('')
+  const [showArchived, setShowArchived] = useState(false)
 
   useEffect(() => {
-    getAllPlants().then(setPlants)
-  }, [])
+    getAllPlants(showArchived).then(setPlants)
+  }, [showArchived])
 
   const filtered = useMemo(() => {
     if (!filter.trim()) return plants
@@ -43,6 +44,10 @@ export function PlantList() {
           添加植物
         </Link>
       </div>
+      <label className="mb-3 inline-flex items-center gap-2 text-sm text-stone-600">
+        <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
+        显示已归档植物（死亡/迁走）
+      </label>
 
       {filtered.length === 0 ? (
         <div className="rounded-lg border border-stone-200 bg-white p-8 text-center text-stone-500">
@@ -81,6 +86,9 @@ export function PlantList() {
                 )}
                 <div className="min-w-0 flex-1">
                   <span className="font-medium text-stone-800">{p.name}</span>
+                  {p.archivedAt && (
+                    <span className="ml-2 rounded bg-stone-200 px-1.5 py-0.5 text-xs text-stone-700">已归档</span>
+                  )}
                   {p.variety && (
                     <p className="text-sm text-stone-500 truncate">{p.variety}</p>
                   )}
