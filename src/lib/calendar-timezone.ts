@@ -90,7 +90,8 @@ export function getTimeZoneOffsetMinutes(timeZone: string, date: Date = new Date
   const mi = n('minute')
   const s = n('second')
   const asUtcMs = Date.UTC(y, mo - 1, d, h, mi, s)
-  return Math.round((asUtcMs - date.getTime()) / 60000)
+  // 与 Date#getTimezoneOffset 保持同号：UTC+8 => -480，UTC-8 => +480
+  return Math.round((date.getTime() - asUtcMs) / 60000)
 }
 
 const WEEKDAY_SHORT_SUN0: Record<string, number> = {
