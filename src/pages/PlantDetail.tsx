@@ -53,6 +53,11 @@ function formatDateOnlyFromDate(dateStr?: string) {
   })
 }
 
+function localYmdToday() {
+  const n = new Date()
+  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`
+}
+
 export function PlantDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -129,6 +134,12 @@ export function PlantDetail() {
       return
     }
     await updatePlant(id, { archivedAt: new Date().toISOString(), archiveReason: reason })
+    const reasonLabel = reason === 'death' ? '死亡' : reason === 'moved' ? '迁走' : '其他'
+    await addGrowthRecord({
+      plantId: id,
+      date: localYmdToday(),
+      notes: `植物已归档（原因：${reasonLabel}）`,
+    })
     await refresh()
   }
 
