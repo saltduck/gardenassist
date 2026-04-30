@@ -23,6 +23,20 @@ export function PlantList() {
     )
   }, [plants, filter])
 
+  const groupedByLocation = useMemo(() => {
+    const m = new Map<string, Plant[]>()
+    for (const p of filtered) {
+      const key = p.location.trim() || '未设置位置'
+      if (!m.has(key)) m.set(key, [])
+      m.get(key)!.push(p)
+    }
+    return [...m.entries()].sort(([a], [b]) => {
+      if (a === '未设置位置') return 1
+      if (b === '未设置位置') return -1
+      return a.localeCompare(b, 'zh-CN')
+    })
+  }, [filtered])
+
   return (
     <div>
       <h1 className="text-2xl font-semibold text-stone-800 mb-2">植物列表</h1>
@@ -66,40 +80,50 @@ export function PlantList() {
           )}
         </div>
       ) : (
-        <ul className="grid gap-3 sm:grid-cols-2">
-          {filtered.map((p) => (
-            <li key={p.id}>
-              <Link
-                to={`/plants/${p.id}`}
-                className="flex gap-3 rounded-lg border border-stone-200 bg-white p-4 shadow-sm hover:border-emerald-300 hover:bg-emerald-50/50"
-              >
-                {p.photoUrl ? (
-                  <img
-                    src={p.photoUrl}
-                    alt=""
-                    className="h-16 w-16 rounded-lg object-cover"
-                  />
-                ) : (
-                  <div className="flex h-16 w-16 items-center justify-center rounded-lg bg-stone-100 text-2xl text-stone-400">
-                    🌱
-                  </div>
-                )}
-                <div className="min-w-0 flex-1">
-                  <span className="font-medium text-stone-800">{p.name}</span>
-                  {p.archivedAt && (
-                    <span className="ml-2 rounded bg-stone-200 px-1.5 py-0.5 text-xs text-stone-700">已归档</span>
-                  )}
-                  {p.variety && (
-                    <p className="text-sm text-stone-500 truncate">{p.variety}</p>
-                  )}
-                  {p.location && (
-                    <p className="text-xs text-stone-400">{p.location}</p>
-                  )}
-                </div>
-              </Link>
-            </li>
+        <div className="space-y-5">
+          {groupedByLocation.map(([location, items]) => (
+            <section key={location}>
+              <h2 className="mb-2 text-sm font-medium text-stone-600">
+                {location}
+                <span className="ml-2 text-xs text-stone-400">({items.length})</span>
+              </h2>
+              <ul className="grid gap-3 sm:grid-cols-2">
+                {items.map((p) => (
+                  <li key={p.id}>
+                    <Link
+                      to={`/plants/${p.id}`}
+                      className="flex gap-3 rounded-lg border border-stone-200 bg-white p-4 shadow-sm hover:border-emerald-300 hover:bg-emerald-50/50"
+                    >
+                      {p.photoUrl ? (
+                        <img
+                          src={p.photoUrl}
+                          alt=""
+                          className="h-16 w-16 rounded-lg object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-16 w-16 items-center justify-center rounded-lg bg-stone-100 text-2xl text-stone-400">
+                          🌱
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <span className="font-medium text-stone-800">{p.name}</span>
+                        {p.archivedAt && (
+                          <span className="ml-2 rounded bg-stone-200 px-1.5 py-0.5 text-xs text-stone-700">已归档</span>
+                        )}
+                        {p.variety && (
+                          <p className="text-sm text-stone-500 truncate">{p.variety}</p>
+                        )}
+                        {p.location && (
+                          <p className="text-xs text-stone-400">{p.location}</p>
+                        )}
+                      </div>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
           ))}
-        </ul>
+        </div>
       )}
     </div>
   )
