@@ -364,7 +364,15 @@ export const onRequest = async (context: Context) => {
       const nextNotes = body.notes !== undefined ? body.notes : current.notes
       const nextArchivedAt = body.archivedAt !== undefined ? body.archivedAt : current.archived_at
       const nextArchiveReason = body.archiveReason !== undefined ? body.archiveReason : current.archive_reason
-      const nextVarietyKey = normalizeVarietyKey(nextName ?? '', nextVariety ?? '')
+      // 默认保留 variety_key：重命名「品种」展示文字不应断开与同品种共享养护模板的匹配。
+      // 仅当显式 syncVarietyKey，或当前 key 为空时，才用名称+品种重新计算。
+      const curVkey = (current.variety_key ?? '').toString().trim()
+      const explicitSync = body.syncVarietyKey === true
+      const nextVarietyKey = explicitSync
+        ? normalizeVarietyKey(nextName ?? '', nextVariety ?? '')
+        : !curVkey
+          ? normalizeVarietyKey(nextName ?? '', nextVariety ?? '')
+          : curVkey
       await env.DB.prepare(
         'UPDATE plants SET name=?, variety=?, variety_key=?, location=?, planted_at=?, photo_url=?, notes=?, archived_at=?, archive_reason=?, updated_at=? WHERE id=?'
       )

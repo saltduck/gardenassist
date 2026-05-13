@@ -25,6 +25,7 @@ export function PlantForm() {
   const [identifyError, setIdentifyError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
+  const [syncVarietyKey, setSyncVarietyKey] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const photoInputRef = useRef<HTMLInputElement>(null)
 
@@ -54,6 +55,7 @@ export function PlantForm() {
           plantedAt: new Date(form.plantedAt).toISOString(),
           photoUrl: form.photoUrl,
           notes: form.notes,
+          ...(syncVarietyKey ? { syncVarietyKey: true } : {}),
         })
         navigate(`/plants/${id}`)
       } else {
@@ -150,6 +152,11 @@ export function PlantForm() {
             className="w-full rounded-md border border-stone-300 px-3 py-2 text-stone-800 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
             placeholder="如：绿萝、多肉"
           />
+          {isEdit && (
+            <p className="mt-1 text-xs text-stone-500">
+              修改品种名称不会影响已有养护计划；系统仍按保存时的「品种关联键」匹配同品种共享计划。
+            </p>
+          )}
           {identifyError && <p className="mt-1 text-sm text-red-600">{identifyError}</p>}
         </div>
         <div>
@@ -237,6 +244,19 @@ export function PlantForm() {
             textareaClassName="w-full rounded-md border border-stone-300 px-3 py-2 text-stone-800 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
           />
         </div>
+        {isEdit && (
+          <label className="flex cursor-pointer items-start gap-2 rounded-md border border-amber-200 bg-amber-50/80 px-3 py-2 text-sm text-stone-700">
+            <input
+              type="checkbox"
+              checked={syncVarietyKey}
+              onChange={(e) => setSyncVarietyKey(e.target.checked)}
+              className="mt-0.5 rounded border-stone-300 text-emerald-600 focus:ring-emerald-500"
+            />
+            <span>
+              同步更新养护计划关联键（按当前名称+品种重新计算）。一般不要勾选，除非你明确要改与同品种共享模板的匹配方式。
+            </span>
+          </label>
+        )}
         <div className="flex gap-2 pt-2">
           <button
             type="submit"

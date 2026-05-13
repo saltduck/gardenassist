@@ -38,6 +38,8 @@ export async function updatePlant(
   input: Partial<Omit<Plant, 'id' | 'createdAt' | 'archivedAt' | 'archiveReason'>> & {
     archivedAt?: string | null
     archiveReason?: 'death' | 'moved' | 'other' | null
+    /** 为 true 时用当前名称+品种重算 variety_key，会改变与同品种共享养护模板的匹配 */
+    syncVarietyKey?: boolean
   }
 ): Promise<Plant | undefined> {
   return await fetchJson<Plant>(`/plants/${id}`, {
