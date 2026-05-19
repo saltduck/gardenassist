@@ -6,8 +6,9 @@ import type { CareTaskType } from '../types/plant'
 import { CARE_TASK_TYPES } from '../types/plant'
 import { MarkdownView } from '../components/MarkdownView'
 import { MarkdownTextarea } from '../components/MarkdownTextarea'
-import { getUserSettings } from '../lib/user-settings'
+import { getUserSettings } from '../lib/storage-api'
 import { getBrowserIanaTimeZone, getTimeZoneOffsetMinutes, resolveCalendarTimeZone, toYmdInTimeZone } from '../lib/calendar-timezone'
+import { getErrorMessage } from '../lib/api-error'
 
 function formatDate(dateStr: string) {
   return new Date(dateStr + 'T12:00:00').toLocaleDateString('zh-CN', {
@@ -274,6 +275,7 @@ export function Tasks() {
   const [completeDate, setCompleteDate] = useState('')
   const [completeSubmitting, setCompleteSubmitting] = useState(false)
   const [completeError, setCompleteError] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   /** 刚完成但服务端读仍可能滞后的行键，合并任意一次拉列表时都会先隐藏 */
   const pendingHideRowKeysRef = useRef<Set<string>>(new Set())
@@ -298,18 +300,19 @@ export function Tasks() {
         setTzOffsetMinutes(getTimeZoneOffsetMinutes(tz))
         setTodayStr(toYmdInTimeZone(new Date(), tz))
       })
-      .catch(() => {})
+      .catch((e) => setLoadError(getErrorMessage(e, '加载用户设置失败')))
   }, [])
 
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       try {
+        setLoadError(null)
         const { today, week } = await fetchDueTaskLists(tzOffsetMinutes, todayStr)
         if (cancelled) return
         applyFetched(today, week)
-      } catch {
-        /* 忽略 */ 
+      } catch (e) {
+        if (!cancelled) setLoadError(getErrorMessage(e, '加载待办失败'))
       }
     })()
     return () => {
@@ -374,6 +377,7 @@ export function Tasks() {
   return (
     <div>
       <h1 className="text-2xl font-semibold text-stone-800 mb-2">待办任务</h1>
+      {loadError ? <p className="mb-4 text-sm text-red-600">{loadError}</p> : null}
       <p className="text-stone-600 mb-6">按养护计划生成的今日与本周到期任务</p>
       <p className="text-xs text-stone-500 mb-4">日期计算时区：{calendarTz}</p>
 

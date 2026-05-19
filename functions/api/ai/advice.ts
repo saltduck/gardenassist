@@ -1,19 +1,28 @@
-type Env = { OPENAI_API_KEY: string }
+import { corsHeaders, requireSessionUser, type SessionD1 } from '../_shared/session'
+
+type Env = { DB: SessionD1; OPENAI_API_KEY: string }
 type Context = { request: Request; env: Env }
 
 export const onRequestPost = async (context: Context) => {
   const { request, env } = context
-  const cors = { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' }
+  const cors = corsHeaders(request)
   try {
+    const auth = await requireSessionUser(env.DB, request)
+    if (auth instanceof Response) return auth
+
     const body = (await request.json()) as { plantSummary?: string; userQuestion?: string; userLocation?: string }
     const plantSummary = body.plantSummary ?? ''
     const userQuestion = body.userQuestion ?? ''
     const userLocation = body.userLocation ?? ''
     if (!env.OPENAI_API_KEY) {
-      return Response.json({
-        success: false,
-        error: 'OPENAI_API_KEY 未配置。请在 Cloudflare Dashboard → Pages → 本项目 → Settings → Environment variables 中为 Production 和 Preview 都添加 OPENAI_API_KEY，然后重新部署。',
-      }, { status: 500, headers: cors })
+      return Response.json(
+        {
+          success: false,
+          error:
+            'OPENAI_API_KEY 未配置。请在 Cloudflare Dashboard → Pages → 本项目 → Settings → Environment variables 中为 Production 和 Preview 都添加 OPENAI_API_KEY，然后重新部署。',
+        },
+        { status: 500, headers: cors }
+      )
     }
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',

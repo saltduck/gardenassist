@@ -3,7 +3,8 @@
  * 所有方法均为 async，组件需在 useEffect 中调用并 setState。
  */
 import type { Plant, GrowthRecord, CareLog, CareSchedule, CareSkip } from '../types/plant'
-import type { DailyWeather, DueTask, TimelineItem } from '../types/data'
+import type { AppSettings, DailyWeather, DueTask, TimelineItem } from '../types/data'
+import { ApiError } from './api-error'
 
 const API_BASE = '/api/data'
 
@@ -14,7 +15,10 @@ async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
     headers: { 'Content-Type': 'application/json', ...options?.headers },
   })
   if (r.status === 204) return undefined as T
-  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText)
+  if (!r.ok) {
+    const body = (await r.json().catch(() => ({}))) as { error?: string }
+    throw new ApiError(body.error || r.statusText, r.status)
+  }
   return r.json()
 }
 
@@ -161,8 +165,14 @@ export async function getDueTasksForDate(dateStr: string, tzOffsetMinutes?: numb
   return await fetchJson<DueTask[]>(`/tasks/due/${dateStr}?tzOffsetMinutes=${encodeURIComponent(String(tz))}`)
 }
 
-export async function getCareLogsForDate(dateStr: string): Promise<CareLog[]> {
-  return await fetchJson<CareLog[]>(`/care-logs/date/${dateStr}`)
+export async function getCareLogsForDate(dateStr: string, tzOffsetMinutes?: number): Promise<CareLog[]> {
+  const tz =
+    tzOffsetMinutes !== undefined && Number.isFinite(tzOffsetMinutes)
+      ? tzOffsetMinutes
+      : new Date().getTimezoneOffset()
+  return await fetchJson<CareLog[]>(
+    `/care-logs/date/${dateStr}?tzOffsetMinutes=${encodeURIComponent(String(tz))}`
+  )
 }
 
 export async function getRecentCareLogs(limit: number): Promise<Array<{ log: CareLog; plant: Plant | undefined }>> {
@@ -187,6 +197,14 @@ export async function upsertDailyWeather(
 
 export async function deleteDailyWeather(date: string): Promise<void> {
   await fetchJson(`/weather/${date}`, { method: 'DELETE' })
+}
+
+export async function getUserSettings(): Promise<AppSettings> {
+  return await fetchJson<AppSettings>('/settings')
+}
+
+export async function setUserSettings(next: AppSettings): Promise<void> {
+  await fetchJson('/settings', { method: 'PUT', body: JSON.stringify(next) })
 }
 
 export type { DueTask, TimelineItem }

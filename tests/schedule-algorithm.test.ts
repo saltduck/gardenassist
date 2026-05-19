@@ -71,4 +71,22 @@ describe('schedule algorithm', () => {
     expect(shouldIncludeInRange('week', '2026-03-15', '2026-03-21', '2026-03-15')).toBe(false)
     expect(shouldIncludeInRange('week', '2026-03-15', '2026-03-21', '2026-03-16')).toBe(true)
   })
+
+  it('shouldIncludeInRange returns false when nextDue is null', () => {
+    expect(shouldIncludeInRange('today', '2026-03-15', '2026-03-21', null)).toBe(false)
+  })
+
+  it('inScheduleWindow allows open-ended ranges', () => {
+    expect(inScheduleWindow('2026-03-15', null, null)).toBe(true)
+    expect(inScheduleWindow('2026-03-15', '2026-03-10', null)).toBe(true)
+  })
+
+  it('normalizeInterval treats invalid interval as 7', () => {
+    expect(computeNextDue('2026-03-15', null, -1)).toBe('2026-03-15')
+    expect(computeNextDue('2026-03-15', '2026-03-01', NaN)).toBe('2026-03-15')
+  })
+
+  it('computeDueFromLast respects startDate after last done', () => {
+    expect(computeDueFromLast('2026-03-15', '2026-03-01', 7, '2026-03-20')).toBe('2026-03-20')
+  })
 })

@@ -1,15 +1,24 @@
-type Env = { OPENAI_API_KEY: string }
+import { corsHeaders, requireSessionUser, type SessionD1 } from '../_shared/session'
+
+type Env = { DB: SessionD1; OPENAI_API_KEY: string }
 type Context = { request: Request; env: Env }
 
 export const onRequestPost = async (context: Context) => {
   const { request, env } = context
-  const cors = { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' }
+  const cors = corsHeaders(request)
   try {
+    const auth = await requireSessionUser(env.DB, request)
+    if (auth instanceof Response) return auth
+
     if (!env.OPENAI_API_KEY) {
-      return Response.json({
-        success: false,
-        error: 'OPENAI_API_KEY 未配置。请到 Pages 项目 Settings → Environment variables 为当前环境添加 OPENAI_API_KEY 并重新部署。',
-      }, { status: 500, headers: cors })
+      return Response.json(
+        {
+          success: false,
+          error:
+            'OPENAI_API_KEY 未配置。请到 Pages 项目 Settings → Environment variables 为当前环境添加 OPENAI_API_KEY 并重新部署。',
+        },
+        { status: 500, headers: cors }
+      )
     }
     let base64 = ''
     const contentType = request.headers.get('content-type') ?? ''

@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { login } from '../lib/auth-api'
+import { resolvePostAuthPath } from '../lib/auth-redirect'
 
 export function Login() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
@@ -16,7 +18,7 @@ export function Login() {
     setLoading(true)
     try {
       await login(email, password)
-      navigate('/', { replace: true })
+      navigate(resolvePostAuthPath(location.state), { replace: true })
     } catch (err) {
       setError((err as Error).message || '登录失败')
     } finally {

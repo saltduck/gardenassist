@@ -25,12 +25,20 @@ export const CARE_TASK_TYPES = [
   { value: 'pruning', label: '修剪' },
   { value: 'repotting', label: '换盆' },
   { value: 'pest_control', label: '除虫' },
-  { value: 'mulch', label: 'Mulch' },
+  { value: 'mulch', label: '铺盖' },
   { value: 'mowing', label: '割草' },
   { value: 'other', label: '其他' },
 ] as const
 
 export type CareTaskType = (typeof CARE_TASK_TYPES)[number]['value']
+
+export type ArchiveReason = NonNullable<Plant['archiveReason']>
+
+export function archiveReasonLabel(reason?: Plant['archiveReason']): string {
+  if (reason === 'death') return '死亡'
+  if (reason === 'moved') return '迁走'
+  return '其他'
+}
 
 /** 展示养护间隔：0 天表示一次性任务 */
 export function formatScheduleInterval(intervalDays: number): string {

@@ -19,14 +19,15 @@ import {
 import { getAdvice, getCarePlan } from '../lib/api'
 import type { CarePlanItem } from '../lib/api'
 import type { TimelineItem } from '../types/data'
-import { CARE_TASK_TYPES, formatScheduleInterval } from '../types/plant'
-import type { Plant, GrowthRecord, CareLog, CareSchedule } from '../types/plant'
+import { CARE_TASK_TYPES, archiveReasonLabel, formatScheduleInterval } from '../types/plant'
+import type { Plant, GrowthRecord, CareLog, CareSchedule, ArchiveReason } from '../types/plant'
 import type { CareTaskType } from '../types/plant'
 import { useEffect, useRef, useState } from 'react'
-import { getUserSettings } from '../lib/user-settings'
+import { getUserSettings } from '../lib/storage-api'
 import { uploadPhoto } from '../lib/upload-api'
 import { MarkdownView } from '../components/MarkdownView'
 import { MarkdownTextarea } from '../components/MarkdownTextarea'
+import { getErrorMessage } from '../lib/api-error'
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('zh-CN', {
@@ -88,21 +89,34 @@ export function PlantDetail() {
   const [carePlanSelected, setCarePlanSelected] = useState<Set<number>>(new Set())
   const [carePlanError, setCarePlanError] = useState<string | null>(null)
   const [userLocation, setUserLocation] = useState('')
+  const [showArchiveDialog, setShowArchiveDialog] = useState(false)
+  const [archiveReason, setArchiveReason] = useState<ArchiveReason>('death')
+  const [archiveSubmitting, setArchiveSubmitting] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   const refresh = async () => {
     if (!id) return
-    const [p, growth, care, tl, sched] = await Promise.all([
-      getPlantById(id),
-      getGrowthRecordsByPlantId(id),
-      getCareLogsByPlantId(id),
-      getTimelineByPlantId(id),
-      getCareSchedulesByPlantId(id),
-    ])
-    setPlant(p ?? null)
-    setGrowthRecords(growth)
-    setCareLogs(care)
-    setTimeline(tl)
-    setCareSchedules(sched)
+    try {
+      setLoadError(null)
+      const [p, growth, care, tl, sched] = await Promise.all([
+        getPlantById(id),
+        getGrowthRecordsByPlantId(id),
+        getCareLogsByPlantId(id),
+        getTimelineByPlantId(id),
+        getCareSchedulesByPlantId(id),
+      ])
+      setPlant(p ?? null)
+      setGrowthRecords(growth)
+      setCareLogs(care)
+      setTimeline(tl)
+      setCareSchedules(sched)
+      if (!p) setLoadError('未找到该植物')
+    } catch (e) {
+      setLoadError(getErrorMessage(e, '加载植物详情失败'))
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => {
@@ -125,22 +139,20 @@ export function PlantDetail() {
   }
 
   const handleArchivePlant = async () => {
-    if (!id || !plant) return
-    const raw = window.prompt('归档原因：death=死亡，moved=迁走，other=其他', 'death')
-    if (raw == null) return
-    const reason = (raw.trim() || 'other') as 'death' | 'moved' | 'other'
-    if (!['death', 'moved', 'other'].includes(reason)) {
-      window.alert('原因仅支持：death / moved / other')
-      return
+    if (!id || !plant || archiveSubmitting) return
+    setArchiveSubmitting(true)
+    try {
+      await updatePlant(id, { archivedAt: new Date().toISOString(), archiveReason })
+      await addGrowthRecord({
+        plantId: id,
+        date: localYmdToday(),
+        notes: `植物已归档（原因：${archiveReasonLabel(archiveReason)}）`,
+      })
+      setShowArchiveDialog(false)
+      await refresh()
+    } finally {
+      setArchiveSubmitting(false)
     }
-    await updatePlant(id, { archivedAt: new Date().toISOString(), archiveReason: reason })
-    const reasonLabel = reason === 'death' ? '死亡' : reason === 'moved' ? '迁走' : '其他'
-    await addGrowthRecord({
-      plantId: id,
-      date: localYmdToday(),
-      notes: `植物已归档（原因：${reasonLabel}）`,
-    })
-    await refresh()
   }
 
   const handleUnarchivePlant = async () => {
@@ -160,7 +172,19 @@ export function PlantDetail() {
     )
   }
 
-  if (!plant) return null
+  if (loading) {
+    return <p className="text-stone-600 text-sm">正在加载植物详情…</p>
+  }
+  if (!plant) {
+    return (
+      <div>
+        <p className="text-red-600 text-sm mb-4">{loadError ?? '未找到该植物'}</p>
+        <Link to="/plants" className="text-emerald-600 hover:underline text-sm">
+          返回植物列表
+        </Link>
+      </div>
+    )
+  }
 
   const plantedDate = plant.plantedAt
     ? formatDate(plant.plantedAt)
@@ -184,7 +208,10 @@ export function PlantDetail() {
           ) : (
             <button
               type="button"
-              onClick={handleArchivePlant}
+              onClick={() => {
+                setArchiveReason('death')
+                setShowArchiveDialog(true)
+              }}
               className="rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-800 hover:bg-amber-100"
             >
               归档
@@ -206,6 +233,57 @@ export function PlantDetail() {
         </div>
       </div>
 
+      {showArchiveDialog && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="archive-plant-title"
+          onClick={() => {
+            if (!archiveSubmitting) setShowArchiveDialog(false)
+          }}
+        >
+          <div
+            className="w-full max-w-sm rounded-lg border border-stone-200 bg-white p-4 shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="archive-plant-title" className="text-lg font-medium text-stone-800 mb-1">
+              归档植物
+            </h2>
+            <p className="text-sm text-stone-600 mb-3">归档后不再出现在待办与提醒中，历史记录会保留。</p>
+            <label className="block text-sm font-medium text-stone-700 mb-1">归档原因</label>
+            <select
+              value={archiveReason}
+              disabled={archiveSubmitting}
+              onChange={(e) => setArchiveReason(e.target.value as ArchiveReason)}
+              className="mb-4 w-full rounded border border-stone-300 px-3 py-2 text-sm disabled:opacity-60"
+            >
+              <option value="death">死亡</option>
+              <option value="moved">迁走</option>
+              <option value="other">其他</option>
+            </select>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={archiveSubmitting}
+                onClick={() => setShowArchiveDialog(false)}
+                className="rounded border border-stone-300 px-3 py-1.5 text-sm hover:bg-stone-100 disabled:opacity-50"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                disabled={archiveSubmitting}
+                onClick={() => void handleArchivePlant()}
+                className="rounded bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+              >
+                {archiveSubmitting ? '提交中…' : '确认归档'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 档案卡片 */}
       <div className="rounded-lg border border-stone-200 bg-white shadow-sm overflow-hidden mb-6">
         <div className="p-6">
@@ -225,7 +303,7 @@ export function PlantDetail() {
               <h1 className="text-2xl font-semibold text-stone-800">{plant.name}</h1>
               {plant.archivedAt && (
                 <p className="mt-1 inline-flex items-center rounded bg-stone-200 px-2 py-0.5 text-xs text-stone-700">
-                  已归档（{plant.archiveReason ?? 'other'}）
+                  已归档（{archiveReasonLabel(plant.archiveReason)}）
                 </p>
               )}
               {plant.variety && (

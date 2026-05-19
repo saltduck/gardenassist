@@ -12,7 +12,7 @@ import type { DueTask } from '../lib/storage-api'
 import type { DailyWeather } from '../types/data'
 import type { CareLog, Plant } from '../types/plant'
 import { CARE_TASK_TYPES } from '../types/plant'
-import { getUserSettings } from '../lib/user-settings'
+import { getUserSettings } from '../lib/storage-api'
 import {
   civilDateToRepresentativeInstant,
   getBrowserIanaTimeZone,
@@ -74,7 +74,7 @@ export function Calendar() {
     const tzOff = getTimeZoneOffsetMinutes(calendarTz)
     Promise.all(
       days.map(async (d) => {
-        const [due, logs] = await Promise.all([getDueTasksForDate(d, tzOff), getCareLogsForDate(d)])
+        const [due, logs] = await Promise.all([getDueTasksForDate(d, tzOff), getCareLogsForDate(d, tzOff)])
         return { d, due, logs }
       })
     ).then((results) => {

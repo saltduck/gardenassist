@@ -3,7 +3,8 @@
 | 项目 | 说明 |
 |------|------|
 | 文档版本 | 1.0 |
-| 生成依据 | `README.md`、`PLAN.md`、源代码、数据库迁移、API 实现 |
+| 生成依据 | `README.md`、历史 `docs/decisions/PLAN-historical.md`、源代码、数据库迁移、API 实现 |
+| 文档位置 | [`docs/requirements/product-spec.md`](./product-spec.md)（原 `docs/requirements/product-spec.md`） |
 | 产品定位 | 个人花园植物生长与养护跟踪 Web 应用 |
 | 目标用户 | 拥有私人花园/阳台/室内植物的个人爱好者 |
 
@@ -505,7 +506,7 @@ User
 
 - 单用户个人账户，无家庭共享。
 - README 提及 localStorage 回退；**当前实现已移除**，完全依赖 D1。
-- AI 养护计划 API 将 `intervalDays` 下限钳制为 1，与前端「0=一次性」在 AI 生成场景不完全一致。
+- ~~AI 养护计划 API 将 `intervalDays` 下限钳制为 1~~（已支持 0=一次性，见 TASK-006）。
 - 无邮件验证、找回密码。
 - 无原生推送提醒。
 
@@ -547,4 +548,17 @@ User
 
 ---
 
-*本文档由代码库与 PLAN 自动归纳，若实现变更请同步更新。*
+## 13. 相关文档
+
+| 文档 | 说明 |
+|------|------|
+| [`AGENTS.md`](../../AGENTS.md) | AI 编码助手项目指引 |
+| [`docs/README.md`](../README.md) | 文档索引 |
+| [`auth-flow.md`](./auth-flow.md) | 认证与会话 |
+| [`billing-rules.md`](./billing-rules.md) | 计费（当前无） |
+| [`../architecture/overview.md`](../architecture/overview.md) | 系统架构与本地开发 |
+| [`../architecture/db-schema.md`](../architecture/db-schema.md) | 数据模型 |
+| [`../architecture/api-contracts.md`](../architecture/api-contracts.md) | API 约定 |
+| [`../architecture/schedule-algorithm.md`](../architecture/schedule-algorithm.md) | 待办算法 |
+
+*若产品行为变更请更新本文档，并同步 `docs/` 子目录与 `AGENTS.md`。*

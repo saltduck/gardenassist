@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { getAllPlants, getTodayDueCount, getRecentCareLogs } from '../lib/storage-api'
+import { getAllPlants, getTodayDueCount, getRecentCareLogs, getUserSettings } from '../lib/storage-api'
 import type { Plant } from '../types/plant'
 import { CARE_TASK_TYPES } from '../types/plant'
-import { getUserSettings } from '../lib/user-settings'
-import { getBrowserIanaTimeZone, getTimeZoneOffsetMinutes, resolveCalendarTimeZone } from '../lib/calendar-timezone'
+import { getTimeZoneOffsetMinutes, resolveCalendarTimeZone } from '../lib/calendar-timezone'
+import { getErrorMessage } from '../lib/api-error'
 
 function formatDateOnly(iso: string) {
   return new Date(iso).toLocaleDateString('zh-CN', {
@@ -16,28 +16,42 @@ function formatDateOnly(iso: string) {
 export function Dashboard() {
   const [plants, setPlants] = useState<Plant[]>([])
   const [todayDue, setTodayDue] = useState(0)
-  const [calendarTz, setCalendarTz] = useState(getBrowserIanaTimeZone())
+  const [calendarTz, setCalendarTz] = useState('')
   const [recentLogs, setRecentLogs] = useState<Array<{ log: { id: string; taskType: string; doneAt: string }; plant: Plant | undefined }>>([])
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   useEffect(() => {
-    getAllPlants().then(setPlants)
-    getRecentCareLogs(5).then(setRecentLogs)
-    getUserSettings()
-      .then((s) => {
-        const tz = resolveCalendarTimeZone(s)
+    let cancelled = false
+    ;(async () => {
+      try {
+        setLoadError(null)
+        const settings = await getUserSettings()
+        const tz = resolveCalendarTimeZone(settings)
+        const [plantList, logs, count] = await Promise.all([
+          getAllPlants(),
+          getRecentCareLogs(5),
+          getTodayDueCount(getTimeZoneOffsetMinutes(tz)),
+        ])
+        if (cancelled) return
         setCalendarTz(tz)
-        return getTodayDueCount(getTimeZoneOffsetMinutes(tz))
-      })
-      .then(setTodayDue)
-      .catch(() => {
-        getTodayDueCount().then(setTodayDue).catch(() => {})
-      })
+        setPlants(plantList)
+        setRecentLogs(logs)
+        setTodayDue(count)
+      } catch (e) {
+        if (!cancelled) setLoadError(getErrorMessage(e, '加载仪表盘失败'))
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   return (
     <div>
       <h1 className="text-2xl font-semibold text-stone-800 mb-2">仪表盘</h1>
       <p className="text-stone-600 mb-6">概览你的花园</p>
+
+      {loadError ? <p className="mb-4 text-sm text-red-600">{loadError}</p> : null}
 
       <div className="grid gap-4 sm:grid-cols-3">
         <section className="rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
@@ -50,7 +64,7 @@ export function Dashboard() {
         <section className="rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
           <h2 className="text-lg font-medium text-stone-700 mb-1">今日待办</h2>
           <p className="text-3xl font-semibold text-amber-600">{todayDue}</p>
-          <p className="text-xs text-stone-500 mt-1">按时区 {calendarTz}</p>
+          {calendarTz ? <p className="text-xs text-stone-500 mt-1">按时区 {calendarTz}</p> : null}
           <Link to="/tasks" className="mt-2 inline-block text-sm text-emerald-600 hover:underline">
             去处理 →
           </Link>
@@ -67,7 +81,7 @@ export function Dashboard() {
       </div>
 
       <div className="mt-8 grid gap-8 lg:grid-cols-2">
-        {plants.length > 0 && (
+        {plants.length > 0 ? (
           <section>
             <h2 className="text-lg font-medium text-stone-700 mb-3">最近植物</h2>
             <ul className="space-y-2">
@@ -78,24 +92,18 @@ export function Dashboard() {
                     className="block rounded-lg border border-stone-200 bg-white p-3 shadow-sm hover:border-emerald-300 hover:bg-emerald-50/50"
                   >
                     <span className="font-medium text-stone-800">{p.name}</span>
-                    {p.variety && (
-                      <span className="ml-2 text-sm text-stone-500">{p.variety}</span>
-                    )}
-                    {p.location && (
-                      <span className="ml-2 text-sm text-stone-400">· {p.location}</span>
-                    )}
+                    {p.variety ? <span className="ml-2 text-sm text-stone-500">{p.variety}</span> : null}
+                    {p.location ? <span className="ml-2 text-sm text-stone-400">· {p.location}</span> : null}
                   </Link>
                 </li>
               ))}
             </ul>
           </section>
-        )}
+        ) : null}
         <section>
           <h2 className="text-lg font-medium text-stone-700 mb-3">最近养护</h2>
           {recentLogs.length === 0 ? (
-            <p className="text-stone-500 text-sm rounded-lg border border-stone-200 bg-white p-4">
-              暂无养护记录
-            </p>
+            <p className="text-stone-500 text-sm rounded-lg border border-stone-200 bg-white p-4">暂无养护记录</p>
           ) : (
             <ul className="space-y-2">
               {recentLogs.map(({ log, plant }) => (

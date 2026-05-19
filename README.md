@@ -1,6 +1,8 @@
 # 花园助手 (Garden Assist)
 
-个人花园植物生长与养护跟踪网站。支持植物档案、生长/养护记录、养护计划与待办、日历，以及 AI 养护建议、拍照识别、自动生成养护计划。
+个人花园植物生长与养护跟踪网站。支持植物档案、生长/养护记录、养护计划与待办、日历，以及 AI 养护建议、拍照识别、自动生成养护计划。需登录使用，数据存 Cloudflare D1。
+
+**文档**：业务需求见 [`docs/requirements/product-spec.md`](docs/requirements/product-spec.md)；技术文档见 [`docs/README.md`](docs/README.md)；AI 助手见 [`AGENTS.md`](AGENTS.md)。
 
 ## 运行
 
@@ -47,7 +49,7 @@ npm run dev
 - 若用 **Git 关联** 部署 Pages：在 Pages 项目 → **Settings** → **Functions** → **D1 database bindings** 里添加绑定，变量名填 **`DB`**，选择刚创建的 `gardenassit-db`。
 - 若用 **`wrangler pages deploy`** 部署：只要 `wrangler.toml` 里已配置好 D1 的 `database_id`，部署时会自动绑定 `DB`。
 
-完成后部署/预览时，前端会优先请求 `/api/data/*`，数据即存入 D1；请求失败则自动回退到浏览器 localStorage。
+完成后部署/预览时，前端通过 `/api/data/*` 读写 D1（需已登录）；当前版本不再使用 localStorage 作为主存储。
 
 ---
 

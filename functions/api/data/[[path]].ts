@@ -1,5 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { addDays, computeDueFromLast, computeNextDue, inScheduleWindow, shouldIncludeInRange } from './schedule-algorithm'
+import { corsHeaders, getCurrentUser } from '../_shared/session'
+import {
+  buildDueTasks,
+  countTodayDueTasks,
+  normalizeVarietyKey,
+  resolveVarietyKeyFromPlantRow,
+} from './due-tasks'
 interface D1Database {
   prepare: (query: string) => {
     bind: (...args: any[]) => {
@@ -12,16 +18,6 @@ interface D1Database {
 }
 type Env = { DB: D1Database }
 type Context = { request: Request; env: Env; params: { path?: string } }
-
-/** 带凭证时须回显 Origin，否则浏览器不发送 Cookie */
-function corsHeaders(request: Request) {
-  const origin = request.headers.get('Origin') || '*'
-  return {
-    'Access-Control-Allow-Origin': origin,
-    'Access-Control-Allow-Credentials': 'true',
-    'Content-Type': 'application/json',
-  }
-}
 
 function parseTzOffset(url: URL): number {
   const raw = url.searchParams.get('tzOffsetMinutes')
@@ -129,18 +125,6 @@ function parseOptionalWeatherNumber(body: Record<string, unknown>, key: string):
   return n
 }
 
-function normalizeVarietyKey(name: string, variety: string): string {
-  const v = (variety ?? '').trim()
-  const n = (name ?? '').trim()
-  return (v || n).trim().toLowerCase()
-}
-
-function resolveVarietyKeyFromPlantRow(row: any): string {
-  const raw = (row?.variety_key ?? '').toString().trim().toLowerCase()
-  if (raw) return raw
-  return normalizeVarietyKey(row?.name ?? '', row?.variety ?? '')
-}
-
 function parseScheduleRef(rawId: string): { scope: 'shared' | 'plant'; id: string } {
   if (rawId.startsWith('tpl:')) return { scope: 'shared', id: rawId.slice(4) }
   if (rawId.startsWith('plant:')) return { scope: 'plant', id: rawId.slice(6) }
@@ -148,28 +132,51 @@ function parseScheduleRef(rawId: string): { scope: 'shared' | 'plant'; id: strin
   return { scope: 'shared', id: rawId }
 }
 
-function parseCookies(req: Request): Record<string, string> {
-  const header = req.headers.get('Cookie') || ''
-  const out: Record<string, string> = {}
-  for (const part of header.split(';')) {
-    const [k, v] = part.split('=')
-    if (!k || v === undefined) continue
-    out[k.trim()] = decodeURIComponent(v.trim())
+async function loadDueTaskSourceData(env: Env, userId: string) {
+  const [plantsRes, templatesRes, plantSchedulesRes, logsRes, skipsRes] = await Promise.all([
+    env.DB.prepare('SELECT * FROM plants WHERE user_id = ? AND archived_at IS NULL').bind(userId).all(),
+    env.DB.prepare('SELECT * FROM care_schedule_templates WHERE user_id = ?').bind(userId).all(),
+    env.DB
+      .prepare(
+        'SELECT cs.* FROM care_schedules cs JOIN plants p ON cs.plant_id = p.id WHERE p.user_id = ? AND p.archived_at IS NULL'
+      )
+      .bind(userId)
+      .all(),
+    env.DB
+      .prepare(
+        'SELECT cl.* FROM care_logs cl JOIN plants p ON cl.plant_id = p.id WHERE p.user_id = ? AND p.archived_at IS NULL ORDER BY cl.done_at DESC'
+      )
+      .bind(userId)
+      .all(),
+    env.DB
+      .prepare(
+        'SELECT cs.* FROM care_skips cs JOIN plants p ON cs.plant_id = p.id WHERE p.user_id = ? AND p.archived_at IS NULL ORDER BY cs.skipped_at DESC'
+      )
+      .bind(userId)
+      .all(),
+  ])
+  return {
+    plantRows: plantsRes.results as any[],
+    templates: templatesRes.results as any[],
+    plantSchedules: plantSchedulesRes.results as any[],
+    logs: logsRes.results as any[],
+    skips: skipsRes.results as any[],
   }
-  return out
 }
 
-async function getCurrentUser(env: Env, request: Request) {
-  const cookies = parseCookies(request)
-  const token = cookies['ga_session']
-  if (!token) return null
-  const now = new Date().toISOString()
-  const sql =
-    'SELECT u.id, u.email FROM sessions s JOIN users u ON s.user_id = u.id WHERE s.token = ? AND s.expires_at > ? LIMIT 1'
-  const { results } = await env.DB.prepare(sql).bind(token, now).all()
-  const row = (results as any[])[0]
-  if (!row) return null
-  return { id: row.id as string, email: row.email as string }
+function dueTaskBuildBase(
+  data: Awaited<ReturnType<typeof loadDueTaskSourceData>>,
+  tzOffsetMinutes: number,
+  today: string
+) {
+  return {
+    ...data,
+    toPlant,
+    toSchedule,
+    tzOffsetMinutes,
+    isoToLocalDate,
+    today,
+  }
 }
 
 export const onRequest = async (context: Context) => {
@@ -187,7 +194,7 @@ export const onRequest = async (context: Context) => {
     }
 
     // 所有数据接口都要求已登录
-    const user = await getCurrentUser(env, request)
+    const user = await getCurrentUser(env.DB, request)
     if (!user) {
       return Response.json({ error: '未登录' }, { status: 401, headers: CORS })
     }
@@ -227,89 +234,6 @@ export const onRequest = async (context: Context) => {
         .bind(user.id, location, timeZone, now)
         .run()
       return Response.json({ location, timeZone }, { headers: CORS })
-    }
-
-    // POST /api/data/import - 批量导入（用于从 localStorage 同步到 D1）
-    if (path === 'import' && method === 'POST') {
-      let body: any
-      try {
-        body = await request.json()
-      } catch {
-        return Response.json({ error: '请求体不是合法 JSON' }, { status: 400, headers: CORS })
-      }
-      if (body == null) body = {}
-      const plants = Array.isArray(body.plants) ? body.plants : []
-      const growthRecords = Array.isArray(body.growthRecords) ? body.growthRecords : []
-      const careLogs = Array.isArray(body.careLogs) ? body.careLogs : []
-      const careSchedules = Array.isArray(body.careSchedules) ? body.careSchedules : []
-      for (const p of plants) {
-        const vkey = normalizeVarietyKey(p.name ?? '', p.variety ?? '')
-        await env.DB.prepare(
-          'INSERT OR REPLACE INTO plants (id, name, variety, variety_key, location, planted_at, photo_url, notes, created_at, updated_at, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-        )
-          .bind(
-            p.id ?? crypto.randomUUID(),
-            p.name ?? '',
-            p.variety ?? '',
-            vkey,
-            p.location ?? '',
-            p.plantedAt ?? new Date().toISOString().slice(0, 10),
-            p.photoUrl ?? null,
-            p.notes ?? null,
-            p.createdAt ?? new Date().toISOString(),
-            p.updatedAt ?? new Date().toISOString(),
-            user.id
-          )
-          .run()
-      }
-      for (const r of growthRecords) {
-        await env.DB.prepare(
-          'INSERT OR REPLACE INTO growth_records (id, plant_id, date, height, leaf_count, health_score, photo_url, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-        )
-          .bind(
-            r.id ?? crypto.randomUUID(),
-            r.plantId,
-            r.date ?? new Date().toISOString().slice(0, 10),
-            r.height ?? null,
-            r.leafCount ?? null,
-            r.healthScore ?? null,
-            r.photoUrl ?? null,
-            r.notes ?? null,
-            r.createdAt ?? new Date().toISOString()
-          )
-          .run()
-      }
-      for (const l of careLogs) {
-        await env.DB.prepare(
-          'INSERT OR REPLACE INTO care_logs (id, plant_id, task_type, done_at, notes, created_at) VALUES (?, ?, ?, ?, ?, ?)'
-        )
-          .bind(
-            l.id ?? crypto.randomUUID(),
-            l.plantId,
-            l.taskType ?? 'other',
-            l.doneAt ?? new Date().toISOString(),
-            l.notes ?? null,
-            l.createdAt ?? new Date().toISOString()
-          )
-          .run()
-      }
-      for (const s of careSchedules) {
-        await env.DB.prepare(
-          'INSERT OR REPLACE INTO care_schedules (id, plant_id, task_type, interval_days, created_at) VALUES (?, ?, ?, ?, ?)'
-        )
-          .bind(
-            s.id ?? crypto.randomUUID(),
-            s.plantId,
-            s.taskType ?? 'other',
-            s.intervalDays ?? 7,
-            s.createdAt ?? new Date().toISOString()
-          )
-          .run()
-      }
-      return Response.json(
-        { success: true, imported: { plants: plants.length, growthRecords: growthRecords.length, careLogs: careLogs.length, careSchedules: careSchedules.length } },
-        { headers: CORS }
-      )
     }
 
     // POST /api/data/plants
@@ -390,8 +314,10 @@ export const onRequest = async (context: Context) => {
           id
         )
         .run()
-      const { results } = await env.DB.prepare('SELECT * FROM plants WHERE id = ?').bind(id).all()
-      return Response.json(toPlant(results[0]), { headers: CORS })
+      const { results } = await env.DB.prepare('SELECT * FROM plants WHERE id = ? AND user_id = ?').bind(id, user.id).all()
+      const row = (results as any[])[0]
+      if (!row) return Response.json({ error: 'Not found' }, { status: 404, headers: CORS })
+      return Response.json(toPlant(row), { headers: CORS })
     }
 
     // DELETE /api/data/plants/:id
@@ -682,149 +608,22 @@ export const onRequest = async (context: Context) => {
     }
 
     // GET /api/data/tasks/due?range=today|week
-    if (pathParts[0] === 'tasks' && pathParts[1] === 'due' && method === 'GET') {
-      const range = url.searchParams.get('range') || 'today'
+    if (pathParts[0] === 'tasks' && pathParts[1] === 'due' && pathParts.length === 2 && method === 'GET') {
+      const range = (url.searchParams.get('range') || 'today') as 'today' | 'week'
       const today = todayLocal(tzOffsetMinutes)
-      const endOfWeek = addDays(today, 6)
-      const [plantsRes, templatesRes, plantSchedulesRes, logsRes, skipsRes] = await Promise.all([
-        env.DB.prepare('SELECT * FROM plants WHERE user_id = ? AND archived_at IS NULL').bind(user.id).all(),
-        env.DB.prepare('SELECT * FROM care_schedule_templates WHERE user_id = ?').bind(user.id).all(),
-        env.DB
-          .prepare('SELECT cs.* FROM care_schedules cs JOIN plants p ON cs.plant_id = p.id WHERE p.user_id = ? AND p.archived_at IS NULL')
-          .bind(user.id)
-          .all(),
-        env.DB
-          .prepare(
-            'SELECT cl.* FROM care_logs cl JOIN plants p ON cl.plant_id = p.id WHERE p.user_id = ? AND p.archived_at IS NULL ORDER BY cl.done_at DESC'
-          )
-          .bind(user.id)
-          .all(),
-        env.DB
-          .prepare(
-            'SELECT cs.* FROM care_skips cs JOIN plants p ON cs.plant_id = p.id WHERE p.user_id = ? AND p.archived_at IS NULL ORDER BY cs.skipped_at DESC'
-          )
-          .bind(user.id)
-          .all(),
-      ])
-      const plants = (plantsRes.results as any[]).map(toPlant)
-      const templates = templatesRes.results as any[]
-      const plantSchedules = plantSchedulesRes.results as any[]
-      const logs = logsRes.results as any[]
-      const skips = skipsRes.results as any[]
-      // 最近一次“完成/跳过”的本地日期（用于推进下一次到期）
-      const actionLocalByKey: Record<string, string | null> = {}
-      const actionMsByKey: Record<string, number> = {}
-      const keyOf = (plantId: string, taskType: string) => `${plantId}|${taskType}`
-      const setIfLater = (plantId: string, taskType: string, iso: string) => {
-        const ms = Date.parse(iso)
-        if (!Number.isFinite(ms)) return
-        const k = keyOf(plantId, taskType)
-        if (actionMsByKey[k] == null || ms > actionMsByKey[k]) {
-          actionMsByKey[k] = ms
-          actionLocalByKey[k] = isoToLocalDate(iso, tzOffsetMinutes)
-        }
-      }
-      for (const l of logs) setIfLater(l.plant_id, l.task_type, l.done_at)
-      for (const s of skips) setIfLater(s.plant_id, s.task_type, s.skipped_at)
-      const lastDone = (plantId: string, taskType: string) => actionLocalByKey[keyOf(plantId, taskType)] ?? null
-      const result: any[] = []
-      const byVariety: Record<string, any[]> = {}
-      for (const t of templates) {
-        const k = (t.variety_key ?? '').toString()
-        if (!byVariety[k]) byVariety[k] = []
-        byVariety[k].push(t)
-      }
-      for (const plant of plants) {
-        const vkey = normalizeVarietyKey(plant.name ?? '', plant.variety ?? '')
-        const mergedSchedules = [
-          ...(byVariety[vkey] || []).map((t) => ({ ...t, plant_id: plant.id, scope: 'shared' })),
-          ...plantSchedules.filter((s) => s.plant_id === plant.id).map((s) => ({ ...s, scope: 'plant' })),
-        ]
-        for (const t of mergedSchedules) {
-          const last = lastDone(plant.id, t.task_type)
-          const nextDue =
-            range === 'today'
-              ? computeDueFromLast(today, last, t.interval_days, t.start_date)
-              : computeNextDue(today, last, t.interval_days, t.start_date)
-          const inRange = shouldIncludeInRange(range as 'today' | 'week', today, endOfWeek, nextDue, t.start_date, t.end_date)
-          if (inRange)
-            result.push({
-              plant,
-              schedule: toSchedule({ ...t, plant_id: plant.id }),
-              nextDue,
-              lastDoneAt: last ? last + 'T12:00:00Z' : null,
-            })
-        }
-      }
-      result.sort((a, b) => (a.nextDue > b.nextDue ? 1 : a.nextDue < b.nextDue ? -1 : 0))
+      const data = await loadDueTaskSourceData(env, user.id)
+      const result = buildDueTasks({
+        ...dueTaskBuildBase(data, tzOffsetMinutes, today),
+        mode: { kind: 'range', range: range === 'week' ? 'week' : 'today' },
+      })
       return Response.json(result, { headers: CORS })
     }
 
     // GET /api/data/tasks/today-count
     if (pathParts[0] === 'tasks' && pathParts[1] === 'today-count' && method === 'GET') {
       const today = todayLocal(tzOffsetMinutes)
-      const [plantsRes, templatesRes, plantSchedulesRes, logsRes, skipsRes] = await Promise.all([
-        env.DB.prepare('SELECT * FROM plants WHERE user_id = ? AND archived_at IS NULL').bind(user.id).all(),
-        env.DB.prepare('SELECT * FROM care_schedule_templates WHERE user_id = ?').bind(user.id).all(),
-        env.DB
-          .prepare('SELECT cs.* FROM care_schedules cs JOIN plants p ON cs.plant_id = p.id WHERE p.user_id = ? AND p.archived_at IS NULL')
-          .bind(user.id)
-          .all(),
-        env.DB
-          .prepare(
-            'SELECT cl.* FROM care_logs cl JOIN plants p ON cl.plant_id = p.id WHERE p.user_id = ? AND p.archived_at IS NULL ORDER BY cl.done_at DESC'
-          )
-          .bind(user.id)
-          .all(),
-        env.DB
-          .prepare(
-            'SELECT cs.* FROM care_skips cs JOIN plants p ON cs.plant_id = p.id WHERE p.user_id = ? AND p.archived_at IS NULL ORDER BY cs.skipped_at DESC'
-          )
-          .bind(user.id)
-          .all(),
-      ])
-      const plants = (plantsRes.results as any[]).map(toPlant)
-      const templates = templatesRes.results as any[]
-      const plantSchedules = plantSchedulesRes.results as any[]
-      const logs = logsRes.results as any[]
-      const skips = skipsRes.results as any[]
-      const actionLocalByKey: Record<string, string | null> = {}
-      const actionMsByKey: Record<string, number> = {}
-      const keyOf = (plantId: string, taskType: string) => `${plantId}|${taskType}`
-      const setIfLater = (plantId: string, taskType: string, iso: string) => {
-        const ms = Date.parse(iso)
-        if (!Number.isFinite(ms)) return
-        const k = keyOf(plantId, taskType)
-        if (actionMsByKey[k] == null || ms > actionMsByKey[k]) {
-          actionMsByKey[k] = ms
-          actionLocalByKey[k] = isoToLocalDate(iso, tzOffsetMinutes)
-        }
-      }
-      for (const l of logs) setIfLater(l.plant_id, l.task_type, l.done_at)
-      for (const s of skips) setIfLater(s.plant_id, s.task_type, s.skipped_at)
-      const lastDone = (plantId: string, taskType: string) => actionLocalByKey[keyOf(plantId, taskType)] ?? null
-      let count = 0
-      const byVariety: Record<string, any[]> = {}
-      for (const t of templates) {
-        const k = (t.variety_key ?? '').toString()
-        if (!byVariety[k]) byVariety[k] = []
-        byVariety[k].push(t)
-      }
-      for (const plant of plants) {
-        const vkey = normalizeVarietyKey(plant.name ?? '', plant.variety ?? '')
-        const mergedSchedules = [
-          ...(byVariety[vkey] || []).map((t) => ({ ...t, plant_id: plant.id, scope: 'shared' })),
-          ...plantSchedules.filter((s) => s.plant_id === plant.id).map((s) => ({ ...s, scope: 'plant' })),
-        ]
-        for (const t of mergedSchedules) {
-          if (!inScheduleWindow(today, t.start_date, t.end_date)) continue
-          const last = lastDone(plant.id, t.task_type)
-          const nextDue = computeNextDue(today, last, t.interval_days, t.start_date)
-          if (nextDue === null) continue
-          if (t.end_date && nextDue > t.end_date) continue
-          if (nextDue <= today) count++
-        }
-      }
+      const data = await loadDueTaskSourceData(env, user.id)
+      const count = countTodayDueTasks(dueTaskBuildBase(data, tzOffsetMinutes, today))
       return Response.json(count, { headers: CORS })
     }
 
@@ -832,87 +631,27 @@ export const onRequest = async (context: Context) => {
     if (pathParts[0] === 'tasks' && pathParts[1] === 'due' && pathParts.length === 3 && method === 'GET') {
       const dateStr = pathParts[2]
       const today = todayLocal(tzOffsetMinutes)
-      const [plantsRes, templatesRes, plantSchedulesRes, logsRes, skipsRes] = await Promise.all([
-        env.DB.prepare('SELECT * FROM plants WHERE user_id = ? AND archived_at IS NULL').bind(user.id).all(),
-        env.DB.prepare('SELECT * FROM care_schedule_templates WHERE user_id = ?').bind(user.id).all(),
-        env.DB
-          .prepare('SELECT cs.* FROM care_schedules cs JOIN plants p ON cs.plant_id = p.id WHERE p.user_id = ? AND p.archived_at IS NULL')
-          .bind(user.id)
-          .all(),
-        env.DB
-          .prepare(
-            'SELECT cl.* FROM care_logs cl JOIN plants p ON cl.plant_id = p.id WHERE p.user_id = ? AND p.archived_at IS NULL ORDER BY cl.done_at DESC'
-          )
-          .bind(user.id)
-          .all(),
-        env.DB
-          .prepare(
-            'SELECT cs.* FROM care_skips cs JOIN plants p ON cs.plant_id = p.id WHERE p.user_id = ? AND p.archived_at IS NULL ORDER BY cs.skipped_at DESC'
-          )
-          .bind(user.id)
-          .all(),
-      ])
-      const plants = (plantsRes.results as any[]).map(toPlant)
-      const templates = templatesRes.results as any[]
-      const plantSchedules = plantSchedulesRes.results as any[]
-      const logs = logsRes.results as any[]
-      const skips = skipsRes.results as any[]
-      const actionLocalByKey: Record<string, string | null> = {}
-      const actionMsByKey: Record<string, number> = {}
-      const keyOf = (plantId: string, taskType: string) => `${plantId}|${taskType}`
-      const setIfLater = (plantId: string, taskType: string, iso: string) => {
-        const ms = Date.parse(iso)
-        if (!Number.isFinite(ms)) return
-        const k = keyOf(plantId, taskType)
-        if (actionMsByKey[k] == null || ms > actionMsByKey[k]) {
-          actionMsByKey[k] = ms
-          actionLocalByKey[k] = isoToLocalDate(iso, tzOffsetMinutes)
-        }
-      }
-      for (const l of logs) setIfLater(l.plant_id, l.task_type, l.done_at)
-      for (const s of skips) setIfLater(s.plant_id, s.task_type, s.skipped_at)
-      const lastDone = (plantId: string, taskType: string) => actionLocalByKey[keyOf(plantId, taskType)] ?? null
-      const result: any[] = []
-      const byVariety: Record<string, any[]> = {}
-      for (const t of templates) {
-        const k = (t.variety_key ?? '').toString()
-        if (!byVariety[k]) byVariety[k] = []
-        byVariety[k].push(t)
-      }
-      for (const plant of plants) {
-        const vkey = normalizeVarietyKey(plant.name ?? '', plant.variety ?? '')
-        const mergedSchedules = [
-          ...(byVariety[vkey] || []).map((t) => ({ ...t, plant_id: plant.id, scope: 'shared' })),
-          ...plantSchedules.filter((s) => s.plant_id === plant.id).map((s) => ({ ...s, scope: 'plant' })),
-        ]
-        for (const t of mergedSchedules) {
-          if (!inScheduleWindow(dateStr, t.start_date, t.end_date)) continue
-          const last = lastDone(plant.id, t.task_type)
-          const nextDue = computeNextDue(today, last, t.interval_days, t.start_date)
-          if (nextDue === null) continue
-          if (t.end_date && nextDue > t.end_date) continue
-          if (nextDue === dateStr)
-            result.push({
-              plant,
-              schedule: toSchedule({ ...t, plant_id: plant.id }),
-              nextDue,
-              lastDoneAt: last ? last + 'T12:00:00Z' : null,
-            })
-        }
-      }
+      const data = await loadDueTaskSourceData(env, user.id)
+      const result = buildDueTasks({
+        ...dueTaskBuildBase(data, tzOffsetMinutes, today),
+        mode: { kind: 'calendar-date', dateStr },
+      })
       return Response.json(result, { headers: CORS })
     }
 
-    // GET /api/data/care-logs/date/:date
+    // GET /api/data/care-logs/date/:date?tzOffsetMinutes=
     if (pathParts[0] === 'care-logs' && pathParts[1] === 'date' && pathParts.length === 3 && method === 'GET') {
       const dateStr = pathParts[2]
       const { results } = await env.DB
         .prepare(
-          "SELECT cl.* FROM care_logs cl JOIN plants p ON cl.plant_id = p.id WHERE p.user_id = ? AND strftime('%Y-%m-%d', cl.done_at) = ?"
+          'SELECT cl.* FROM care_logs cl JOIN plants p ON cl.plant_id = p.id WHERE p.user_id = ? AND p.archived_at IS NULL ORDER BY cl.done_at DESC'
         )
-        .bind(user.id, dateStr)
+        .bind(user.id)
         .all()
-      return Response.json((results as any[]).map(toCareLog), { headers: CORS })
+      const filtered = (results as any[]).filter(
+        (row) => isoToLocalDate(row.done_at, tzOffsetMinutes) === dateStr
+      )
+      return Response.json(filtered.map(toCareLog), { headers: CORS })
     }
 
     // GET /api/data/recent-care-logs?limit=5

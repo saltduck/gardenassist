@@ -1,3 +1,5 @@
+import { ApiError } from './api-error'
+
 export interface AuthUser {
   id: string
   email: string
@@ -12,12 +14,8 @@ async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
     headers: { 'Content-Type': 'application/json', ...options?.headers },
   })
   if (r.status === 204) return undefined as T
-  const data = (await r.json().catch(() => ({}))) as any
-  if (!r.ok) {
-    const err = new Error(data.error || r.statusText) as Error & { status?: number }
-    err.status = r.status
-    throw err
-  }
+  const data = (await r.json().catch(() => ({}))) as { error?: string }
+  if (!r.ok) throw new ApiError(data.error || r.statusText, r.status)
   return data as T
 }
 
@@ -25,8 +23,7 @@ export async function getMe(): Promise<AuthUser | null> {
   try {
     return await fetchJson<AuthUser>('/me')
   } catch (e) {
-    const status = (e as any)?.status
-    if (status === 401) return null
+    if (e instanceof ApiError && e.status === 401) return null
     throw e
   }
 }

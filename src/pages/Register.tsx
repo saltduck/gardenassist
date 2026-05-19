@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { register } from '../lib/auth-api'
+import { resolvePostAuthPath } from '../lib/auth-redirect'
 
 export function Register() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
@@ -16,7 +18,7 @@ export function Register() {
     setLoading(true)
     try {
       await register(email, password)
-      navigate('/', { replace: true })
+      navigate(resolvePostAuthPath(location.state), { replace: true })
     } catch (err) {
       setError((err as Error).message || '注册失败')
     } finally {

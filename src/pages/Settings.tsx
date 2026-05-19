@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { getUserSettings, setUserSettings } from '../lib/user-settings'
+import { getUserSettings, setUserSettings } from '../lib/storage-api'
 import { changePassword } from '../lib/auth-api'
 import { PRESET_LOCATION_TO_TIMEZONE } from '../lib/calendar-timezone'
 

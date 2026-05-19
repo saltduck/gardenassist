@@ -3,6 +3,7 @@ const API_BASE = '/api/ai'
 async function postJson<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
@@ -34,6 +35,7 @@ export async function identifyPlant(file: File): Promise<IdentifyResult> {
   form.append('image', file)
   const res = await fetch(`${API_BASE}/identify`, {
     method: 'POST',
+    credentials: 'include',
     body: form,
   })
   const data = (await res.json()) as IdentifyResult
