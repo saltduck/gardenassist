@@ -40,6 +40,9 @@ const PRESETS = [
 export function Settings() {
   const [preset, setPreset] = useState('')
   const [location, setLocation] = useState('')
+  const [suburb, setSuburb] = useState('')
+  const [latitude, setLatitude] = useState('')
+  const [longitude, setLongitude] = useState('')
   const [timeZone, setTimeZone] = useState('')
   const [saved, setSaved] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -53,6 +56,9 @@ export function Settings() {
       .then((s) => {
         if (!mounted) return
         setLocation(s.location || '')
+        setSuburb(s.suburb || '')
+        setLatitude(s.latitude != null ? String(s.latitude) : '')
+        setLongitude(s.longitude != null ? String(s.longitude) : '')
         setTimeZone(s.timeZone || '')
       })
       .catch((e) => { if (mounted) setError(e instanceof Error ? e.message : '加载失败') })
@@ -105,6 +111,42 @@ export function Settings() {
         </div>
 
         <div>
+          <label className="block text-sm font-medium text-stone-700 mb-1">郊区 / 街区（suburb）</label>
+          <input
+            value={suburb}
+            onChange={(e) => setSuburb(e.target.value)}
+            placeholder="例如：Paddington"
+            className="w-full rounded border border-stone-300 px-3 py-2 text-sm"
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium text-stone-700 mb-1">纬度</label>
+            <input
+              type="number"
+              step="any"
+              value={latitude}
+              onChange={(e) => setLatitude(e.target.value)}
+              placeholder="-33.87"
+              className="w-full rounded border border-stone-300 px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-stone-700 mb-1">经度</label>
+            <input
+              type="number"
+              step="any"
+              value={longitude}
+              onChange={(e) => setLongitude(e.target.value)}
+              placeholder="151.21"
+              className="w-full rounded border border-stone-300 px-3 py-2 text-sm"
+            />
+          </div>
+        </div>
+        <p className="text-xs text-stone-500 -mt-1">经纬度用于天气自动同步与拍照识别；南纬为负数。</p>
+
+        <div>
           <label className="block text-sm font-medium text-stone-700 mb-1">日历时区（IANA）</label>
           <select
             value={timeZone}
@@ -132,7 +174,23 @@ export function Settings() {
             onClick={async () => {
               try {
                 setError(null)
-                await setUserSettings({ location: location.trim(), timeZone: timeZone.trim() })
+                const lat = latitude.trim() === '' ? null : Number(latitude)
+                const lon = longitude.trim() === '' ? null : Number(longitude)
+                if (latitude.trim() && !Number.isFinite(lat)) {
+                  setError('纬度须为有效数字')
+                  return
+                }
+                if (longitude.trim() && !Number.isFinite(lon)) {
+                  setError('经度须为有效数字')
+                  return
+                }
+                await setUserSettings({
+                  location: location.trim(),
+                  timeZone: timeZone.trim(),
+                  suburb: suburb.trim(),
+                  latitude: lat,
+                  longitude: lon,
+                })
                 setSaved(true)
                 setTimeout(() => setSaved(false), 1200)
               } catch (e) {

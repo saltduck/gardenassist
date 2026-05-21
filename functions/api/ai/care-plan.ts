@@ -1,4 +1,5 @@
 import { normalizeIntervalDays } from '../_shared/interval-days'
+import { consumeRateLimit } from '../_shared/rate-limit'
 import { corsHeaders, requireSessionUser, type SessionD1 } from '../_shared/session'
 
 type Env = { DB: SessionD1; OPENAI_API_KEY: string }
@@ -14,6 +15,11 @@ export const onRequestPost = async (context: Context) => {
   try {
     const auth = await requireSessionUser(env.DB, request)
     if (auth instanceof Response) return auth
+
+    const rl = await consumeRateLimit(env.DB, `ai:care-plan:${auth.id}`, 30, 60 * 60 * 1000)
+    if (!rl.allowed) {
+      return Response.json({ success: false, error: '生成计划请求过于频繁，请稍后再试' }, { status: 429, headers: cors })
+    }
 
     const body = (await request.json()) as { variety?: string; location?: string }
     const variety = body.variety ?? ''

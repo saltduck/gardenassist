@@ -53,3 +53,17 @@ export async function changePassword(currentPassword: string, newPassword: strin
   })
 }
 
+export async function requestPasswordReset(email: string): Promise<{ success: boolean; message: string }> {
+  return await fetchJson('/forgot-password', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  })
+}
+
+export async function resetPassword(token: string, newPassword: string): Promise<void> {
+  await fetchJson('/reset-password', {
+    method: 'POST',
+    body: JSON.stringify({ token, newPassword }),
+  })
+}
+

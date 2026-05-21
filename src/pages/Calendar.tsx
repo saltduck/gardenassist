@@ -5,9 +5,12 @@ import {
   getCareLogsForDate,
   getAllPlants,
   getWeatherForRange,
+  syncWeatherAroundToday,
+  syncWeatherRange,
   upsertDailyWeather,
   deleteDailyWeather,
 } from '../lib/storage-api'
+import { getErrorMessage } from '../lib/api-error'
 import type { DueTask } from '../lib/storage-api'
 import type { DailyWeather } from '../types/data'
 import type { CareLog, Plant } from '../types/plant'
@@ -50,43 +53,65 @@ export function Calendar() {
   const [logsByDate, setLogsByDate] = useState<Record<string, CareLog[]>>({})
   const [weatherByDate, setWeatherByDate] = useState<Record<string, DailyWeather>>({})
   const [weatherError, setWeatherError] = useState<string | null>(null)
+  const [weatherSyncWarning, setWeatherSyncWarning] = useState<string | null>(null)
+  const [weatherSyncInfo, setWeatherSyncInfo] = useState<string | null>(null)
   const [tempMaxStr, setTempMaxStr] = useState('')
   const [tempMinStr, setTempMinStr] = useState('')
   const [precipStr, setPrecipStr] = useState('')
   const [weatherSaving, setWeatherSaving] = useState(false)
   const [weatherFormError, setWeatherFormError] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   const grid = useMemo(() => getMonthGridInTimeZone(year, month, calendarTz), [year, month, calendarTz])
 
   useEffect(() => {
     getUserSettings()
-      .then((s) => setCalendarTz(resolveCalendarTimeZone(s)))
-      .catch(() => {})
+      .then((s) => {
+        const tz = resolveCalendarTimeZone(s)
+        setCalendarTz(tz)
+      })
+      .catch((e) => setLoadError(getErrorMessage(e, '加载用户设置失败')))
   }, [])
 
   useEffect(() => {
-    getAllPlants().then(setPlants)
+    getAllPlants()
+      .then(setPlants)
+      .catch((e) => setLoadError(getErrorMessage(e, '加载植物失败')))
   }, [])
 
   useEffect(() => {
     const days = grid.filter((d): d is string => d !== null)
     if (days.length === 0) return
     const tzOff = getTimeZoneOffsetMinutes(calendarTz)
+    const from = days[0]
+    const to = days[days.length - 1]
+    setWeatherSyncWarning(null)
+    setWeatherSyncInfo(null)
+    void syncWeatherAroundToday(tzOff)
+      .then((r) => {
+        if (r.synced > 0) setWeatherSyncInfo(`已自动更新 ${r.synced} 天天气`)
+      })
+      .catch((e) => {
+        setWeatherSyncWarning(getErrorMessage(e, '天气暂不可用，可手填或稍后重试'))
+      })
+    void syncWeatherRange(from, to).catch(() => {})
     Promise.all(
       days.map(async (d) => {
         const [due, logs] = await Promise.all([getDueTasksForDate(d, tzOff), getCareLogsForDate(d, tzOff)])
         return { d, due, logs }
       })
-    ).then((results) => {
-      const dueMap: Record<string, DueTask[]> = {}
-      const logsMap: Record<string, CareLog[]> = {}
-      results.forEach(({ d, due, logs }) => {
-        dueMap[d] = due
-        logsMap[d] = logs
+    )
+      .then((results) => {
+        const dueMap: Record<string, DueTask[]> = {}
+        const logsMap: Record<string, CareLog[]> = {}
+        results.forEach(({ d, due, logs }) => {
+          dueMap[d] = due
+          logsMap[d] = logs
+        })
+        setDueTasksByDate(dueMap)
+        setLogsByDate(logsMap)
       })
-      setDueTasksByDate(dueMap)
-      setLogsByDate(logsMap)
-    })
+      .catch((e) => setLoadError(getErrorMessage(e, '加载日历数据失败')))
   }, [grid, calendarTz])
 
   useEffect(() => {
@@ -212,6 +237,7 @@ export function Calendar() {
   return (
     <div>
       <h1 className="text-2xl font-semibold text-stone-800 mb-2">日历</h1>
+      {loadError && <p className="mb-3 text-sm text-red-600">{loadError}</p>}
       <p className="text-stone-600 mb-2">按日查看养护计划、完成记录，以及当日气温与降水</p>
       <p className="text-xs text-stone-500 mb-6">
         「今天」、月历对齐与当日到期任务均按设置中的所在地/时区解析（当前：{calendarTz}）。可在「设置」中修改。
@@ -311,6 +337,8 @@ export function Calendar() {
               )
             })}
           </div>
+          {weatherSyncWarning && <p className="mt-2 text-xs text-amber-700">{weatherSyncWarning}</p>}
+          {weatherSyncInfo && <p className="mt-2 text-xs text-emerald-700">{weatherSyncInfo}</p>}
           {weatherError && <p className="mt-2 text-xs text-red-600">{weatherError}</p>}
           <p className="mt-2 text-xs text-stone-500">
             格内偏青蓝色为气温（°C），其下为降水量（mm）；可与到期、已完成标签同格显示。

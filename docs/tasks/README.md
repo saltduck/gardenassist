@@ -1,51 +1,71 @@
 # 任务索引（TASK）
 
-依据 [`MIGRATION-REPORT.md`](../decisions/MIGRATION-REPORT.md) 拆分的可执行任务。实施时**暂不编写无关代码**，按任务顺序推进并勾选验收标准。
+依据 [`MIGRATION-REPORT.md`](../decisions/MIGRATION-REPORT.md) 与 product-spec §11 验收差距拆分。
 
 ## 状态说明
 
 | 标记 | 含义 |
 |------|------|
 | ⬜ | 未开始 |
-| 🟡 | 进行中 |
+| 🟡 | 进行中 / 部分满足 |
 | ✅ | 已完成 |
 
-## 任务列表
+## v1.0 合规（已完成）
 
-| ID | 文件 | 优先级 | 阶段 | 状态 |
-|----|------|--------|------|------|
-| TASK-001 | [TASK-001-due-algorithm-unification.md](./TASK-001-due-algorithm-unification.md) | P0 | A | ✅ |
-| TASK-002 | [TASK-002-variety-key-unification.md](./TASK-002-variety-key-unification.md) | P0 | A | ✅ |
-| TASK-003 | [TASK-003-calendar-care-logs-timezone.md](./TASK-003-calendar-care-logs-timezone.md) | P0 | B | ✅ |
-| TASK-004 | [TASK-004-storage-api-settings.md](./TASK-004-storage-api-settings.md) | P1 | C | ✅ |
-| TASK-005 | [TASK-005-ai-auth-and-cors.md](./TASK-005-ai-auth-and-cors.md) | P1 | D | ✅ |
-| TASK-006 | [TASK-006-care-plan-interval-zero.md](./TASK-006-care-plan-interval-zero.md) | P1 | D | ✅ |
-| TASK-007 | [TASK-007-legacy-import-endpoint.md](./TASK-007-legacy-import-endpoint.md) | P1 | D | ✅ |
-| TASK-008 | [TASK-008-ui-chinese-copy.md](./TASK-008-ui-chinese-copy.md) | P2 | E | ✅ |
-| TASK-009 | [TASK-009-docs-api-paths.md](./TASK-009-docs-api-paths.md) | P3 | E | ✅ |
-| TASK-010 | [TASK-010-dev-workflow-script.md](./TASK-010-dev-workflow-script.md) | P2 | E | ✅ |
+| ID | 文件 | 状态 |
+|----|------|------|
+| TASK-001 … TASK-010 | 见 [MIGRATION-REPORT](../decisions/MIGRATION-REPORT.md) §1 | ✅ |
 
-## 依赖关系
+## v1.1 功能（已完成 2026-05-19）
+
+| ID | 文件 | 状态 |
+|----|------|------|
+| TASK-011 | [TASK-011-assets-api-auth.md](./TASK-011-assets-api-auth.md) | ✅ |
+| TASK-012 | [TASK-012-password-reset.md](./TASK-012-password-reset.md) | ✅ |
+| TASK-013 | [TASK-013-suburb-location.md](./TASK-013-suburb-location.md) | ✅ |
+| TASK-014 | [TASK-014-weather-auto-sync.md](./TASK-014-weather-auto-sync.md) | ✅ |
+| TASK-015 | [TASK-015-plant-id-identify.md](./TASK-015-plant-id-identify.md) | ✅ |
+| TASK-016 | [TASK-016-seasonal-watering.md](./TASK-016-seasonal-watering.md) | ✅ |
+| TASK-017 | [TASK-017-garden-map.md](./TASK-017-garden-map.md) | ✅ |
+| TASK-018 | [TASK-018-frontend-load-errors.md](./TASK-018-frontend-load-errors.md) | ✅ |
+
+## v1.1 验收补齐（2026-05-19）
+
+| ID | 文件 | 优先级 | 状态 |
+|----|------|--------|------|
+| TASK-019 | [TASK-019-password-reset-hardening.md](./TASK-019-password-reset-hardening.md) | P1 | ✅ |
+| TASK-020 | [TASK-020-plantid-polish.md](./TASK-020-plantid-polish.md) | P2 | ✅ |
+| TASK-021 | [TASK-021-seasonal-watering-ui.md](./TASK-021-seasonal-watering-ui.md) | P2 | ✅ |
+| TASK-022 | [TASK-022-suburb-geocode-grouping.md](./TASK-022-suburb-geocode-grouping.md) | P1 | ✅ |
+| TASK-023 | [TASK-023-weather-sync-ux.md](./TASK-023-weather-sync-ux.md) | P1 | ✅ |
+| TASK-024 | [TASK-024-garden-map-ux.md](./TASK-024-garden-map-ux.md) | P2 | ✅ |
+| TASK-025 | [TASK-025-frontend-errors-remainder.md](./TASK-025-frontend-errors-remainder.md) | P3 | ✅ |
+| TASK-026 | [TASK-026-api-rate-limiting.md](./TASK-026-api-rate-limiting.md) | P2 | ✅ |
+| TASK-027 | [TASK-027-product-spec-acceptance-sync.md](./TASK-027-product-spec-acceptance-sync.md) | P3 | ✅ |
+
+**建议顺序**：`019` → `022` → `023` → `026`（可合并 019）；`020` ∥ `021`；`024`；`025`；最后 `027`（或每 PR 局部更新 spec）。
 
 ```mermaid
-flowchart TD
-  TASK001[TASK-001 待办算法统一]
-  TASK002[TASK-002 variety_key 统一]
-  TASK003[TASK-003 日历已完成时区]
-  TASK004[TASK-004 storage-api 设置]
-  TASK005[TASK-005 AI 鉴权]
-  TASK006[TASK-006 care-plan interval 0]
-  TASK007[TASK-007 import 端点]
-  TASK008[TASK-008 中文文案]
-  TASK009[TASK-009 文档路径]
-  TASK010[TASK-010 dev:full]
+flowchart LR
+  T019[TASK-019 找回密码加固]
+  T022[TASK-022 suburb/geocode]
+  T023[TASK-023 天气 UX]
+  T026[TASK-026 限流]
+  T020[TASK-020 Plant.id]
+  T021[TASK-021 季节 UI]
+  T024[TASK-024 花园图]
+  T025[TASK-025 前端错误]
+  T027[TASK-027 文档]
 
-  TASK002 --> TASK001
-  TASK001 --> TASK003
-  TASK004 --> TASK005
-  TASK005 --> TASK006
-  TASK001 --> TASK009
-  TASK003 --> TASK009
+  T019 --> T026
+  T022 --> T023
+  T020 --> T027
+  T021 --> T027
+  T023 --> T027
+  T024 --> T027
 ```
 
-建议顺序：**TASK-002 → TASK-001 → TASK-003**；**TASK-004** 可与阶段 A 并行；**TASK-005 → TASK-006 → TASK-007**；最后 **TASK-008 / TASK-009 / TASK-010**。
+## 参考
+
+- 差距来源：product-spec §11 验收审查（2026-05-19）
+- 需求权威：[product-spec.md](../requirements/product-spec.md)

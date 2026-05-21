@@ -2,7 +2,7 @@
 
 个人花园植物生长与养护跟踪网站。支持植物档案、生长/养护记录、养护计划与待办、日历，以及 AI 养护建议、拍照识别、自动生成养护计划。需登录使用，数据存 Cloudflare D1。
 
-**文档**：业务需求见 [`docs/requirements/product-spec.md`](docs/requirements/product-spec.md)；技术文档见 [`docs/README.md`](docs/README.md)；AI 助手见 [`AGENTS.md`](AGENTS.md)。
+**文档**：业务需求见 [`docs/requirements/product-spec.md`](docs/requirements/product-spec.md)（**v1.1**，§3.14 为规划功能）；速查 [`docs/requirements/planned-v1.1.md`](docs/requirements/planned-v1.1.md)；技术文档见 [`docs/README.md`](docs/README.md)；AI 助手见 [`AGENTS.md`](AGENTS.md)。
 
 ## 运行
 

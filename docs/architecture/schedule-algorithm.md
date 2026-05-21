@@ -97,3 +97,18 @@
 ### 品种键
 
 合并共享模板时使用 `resolveVarietyKeyFromPlantRow`（优先 DB `variety_key`），与 `GET /plants/:id/schedules` 一致。
+
+---
+
+## 规划：季节浇水调整（v1.1，未实现）
+
+详见 product-spec **§3.14.4**。实现思路摘要：
+
+1. 计划级开关 `seasonalWateringAdjust`（仅 `taskType = watering`）。
+2. 按用户半球 + 当前月份查系数表，得 `effectiveInterval = max(1, round(baseInterval × factor))`。
+3. 将 `effectiveInterval` 代入现有 `computeNextDue` / `computeDueFromLast`（在 `due-tasks.ts` 调用前解析 interval）。
+4. UI 展示「基准间隔 / 当前季节有效间隔」。
+
+**未实现前**：算法仍使用库中原始 `interval_days`，与季节无关。
+
+实现后须扩展 `tests/schedule-algorithm.test.ts` 或新增 `tests/season-watering.test.ts`，并更新 `due-tasks` 集成测试。

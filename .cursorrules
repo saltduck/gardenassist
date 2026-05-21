@@ -2,6 +2,6 @@
 
 本项目的 Cursor 规则入口。**完整指引见仓库根目录 [AGENTS.md](./AGENTS.md)**。
 
-执行任务前请先阅读 AGENTS.md；业务需求以 [docs/requirements/product-spec.md](./docs/requirements/product-spec.md) 为准；技术细节见 [docs/README.md](./docs/README.md)。
+执行任务前请先阅读 AGENTS.md；业务需求以 [docs/requirements/product-spec.md](./docs/requirements/product-spec.md) 为准（v1.1 §3.14 为规划、未实现）；规划速查 [docs/requirements/planned-v1.1.md](./docs/requirements/planned-v1.1.md)；技术细节见 [docs/README.md](./docs/README.md)。
 
 若 AGENTS.md 与本文件表述冲突，以 **AGENTS.md** 为准。

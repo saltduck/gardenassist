@@ -52,6 +52,11 @@ export function Login() {
               className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
             />
           </div>
+          <p className="text-right text-xs">
+            <Link to="/forgot-password" className="text-emerald-700 hover:underline">
+              忘记密码？
+            </Link>
+          </p>
           <button
             type="submit"
             disabled={loading}

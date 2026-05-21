@@ -3,7 +3,13 @@ export interface Plant {
   name: string
   variety: string
   location: string
+  /** 郊区/街区，用于天气与季节规则 */
+  suburb?: string
   plantedAt: string // ISO date
+  mapX?: number
+  mapY?: number
+  gardenMapId?: string
+  externalPlantId?: string
   photoUrl?: string
   notes?: string
   /** 归档时间（ISO）。存在表示该植物已归档，不再参与待办/提醒。 */
@@ -93,5 +99,7 @@ export interface CareSchedule {
   endDate?: string
   /** 可选：备注/注意事项（用于提醒） */
   note?: string
+  /** 仅浇水：按季节调整有效间隔 */
+  seasonalWateringAdjust?: boolean
   createdAt: string
 }

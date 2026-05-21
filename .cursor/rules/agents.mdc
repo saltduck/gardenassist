@@ -7,7 +7,8 @@ alwaysApply: true
 
 **权威说明：** 请遵循仓库根目录的 [AGENTS.md](../../AGENTS.md)。
 
-- 业务需求：[docs/requirements/product-spec.md](../../docs/requirements/product-spec.md)
+- 业务需求：[docs/requirements/product-spec.md](../../docs/requirements/product-spec.md)（v1.1 §3.14 为规划）
+- v1.1 规划速查：[docs/requirements/planned-v1.1.md](../../docs/requirements/planned-v1.1.md)
 - 技术文档：[docs/README.md](../../docs/README.md)
 - 遗留规则文件：[.cursorrules](../../.cursorrules)（同样指向 AGENTS.md）
 

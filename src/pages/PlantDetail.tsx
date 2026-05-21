@@ -19,7 +19,8 @@ import {
 import { getAdvice, getCarePlan } from '../lib/api'
 import type { CarePlanItem } from '../lib/api'
 import type { TimelineItem } from '../types/data'
-import { CARE_TASK_TYPES, archiveReasonLabel, formatScheduleInterval } from '../types/plant'
+import { CARE_TASK_TYPES, archiveReasonLabel } from '../types/plant'
+import { formatScheduleIntervalDisplay } from '../lib/season-watering'
 import type { Plant, GrowthRecord, CareLog, CareSchedule, ArchiveReason } from '../types/plant'
 import type { CareTaskType } from '../types/plant'
 import { useEffect, useRef, useState } from 'react'
@@ -80,6 +81,7 @@ export function PlantDetail() {
   const [editingScheduleStartDate, setEditingScheduleStartDate] = useState('')
   const [editingScheduleEndDate, setEditingScheduleEndDate] = useState('')
   const [editingScheduleNote, setEditingScheduleNote] = useState('')
+  const [editingScheduleSeasonal, setEditingScheduleSeasonal] = useState(false)
   const [adviceQuestion, setAdviceQuestion] = useState('')
   const [adviceLoading, setAdviceLoading] = useState(false)
   const [adviceResult, setAdviceResult] = useState<string | null>(null)
@@ -89,6 +91,8 @@ export function PlantDetail() {
   const [carePlanSelected, setCarePlanSelected] = useState<Set<number>>(new Set())
   const [carePlanError, setCarePlanError] = useState<string | null>(null)
   const [userLocation, setUserLocation] = useState('')
+  const [userLatitude, setUserLatitude] = useState<number | null>(null)
+  const [settingsError, setSettingsError] = useState<string | null>(null)
   const [showArchiveDialog, setShowArchiveDialog] = useState(false)
   const [archiveReason, setArchiveReason] = useState<ArchiveReason>('death')
   const [archiveSubmitting, setArchiveSubmitting] = useState(false)
@@ -126,8 +130,15 @@ export function PlantDetail() {
   useEffect(() => {
     let mounted = true
     getUserSettings()
-      .then((s) => { if (mounted) setUserLocation(s.location || '') })
-      .catch(() => {})
+      .then((s) => {
+        if (!mounted) return
+        setUserLocation(s.location || '')
+        setUserLatitude(s.latitude ?? null)
+        setSettingsError(null)
+      })
+      .catch((e) => {
+        if (mounted) setSettingsError(getErrorMessage(e, '加载用户设置失败'))
+      })
     return () => { mounted = false }
   }, [])
 
@@ -327,6 +338,7 @@ export function PlantDetail() {
       {/* AI 助手：养护建议 + 自动养护计划 */}
       <section className="mb-6 rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
         <h2 className="text-lg font-medium text-stone-800 mb-3">AI 助手</h2>
+        {settingsError && <p className="mb-3 text-sm text-amber-700">{settingsError}</p>}
 
         <div className="space-y-4">
           <div>
@@ -436,7 +448,14 @@ export function PlantDetail() {
                           <span className="rounded bg-amber-100 px-1.5 py-0.5">
                             {CARE_TASK_TYPES.find((t) => t.value === item.taskType)?.label ?? item.taskType}
                           </span>
-                          <span>{formatScheduleInterval(item.intervalDays)}</span>
+                          <span>
+                            {formatScheduleIntervalDisplay(
+                              item.intervalDays,
+                              item.taskType as CareTaskType,
+                              undefined,
+                              userLatitude
+                            )}
+                          </span>
                           {item.note && (
                             <div className="ml-2 text-xs text-stone-500">
                               <span>· </span>
@@ -618,6 +637,16 @@ export function PlantDetail() {
                         />
                       </div>
                     </div>
+                    {editingScheduleTaskType === 'watering' && (
+                      <label className="mt-3 flex items-center gap-2 text-sm text-stone-700">
+                        <input
+                          type="checkbox"
+                          checked={editingScheduleSeasonal}
+                          onChange={(e) => setEditingScheduleSeasonal(e.target.checked)}
+                        />
+                        按季节调整浇水间隔
+                      </label>
+                    )}
                     <div className="mt-3">
                       <label className="block text-xs font-medium text-stone-600 mb-1">备注（可选）</label>
                       <MarkdownTextarea
@@ -640,6 +669,8 @@ export function PlantDetail() {
                             startDate: editingScheduleStartDate || undefined,
                             endDate: editingScheduleEndDate || undefined,
                             note: editingScheduleNote || undefined,
+                            seasonalWateringAdjust:
+                              editingScheduleTaskType === 'watering' ? editingScheduleSeasonal : undefined,
                           })
                           setEditingScheduleId(null)
                           refresh()
@@ -665,7 +696,14 @@ export function PlantDetail() {
                     <span className={`rounded px-2 py-0.5 text-xs ${s.scope === 'plant' ? 'bg-blue-100 text-blue-700' : 'bg-stone-100 text-stone-600'}`}>
                       {s.scope === 'plant' ? '仅此植株' : '同品种共享'}
                     </span>
-                    <span className="text-stone-600 text-sm">{formatScheduleInterval(s.intervalDays)}</span>
+                    <span className="text-stone-600 text-sm">
+                      {formatScheduleIntervalDisplay(
+                        s.intervalDays,
+                        s.taskType,
+                        s.seasonalWateringAdjust,
+                        userLatitude
+                      )}
+                    </span>
                     {(s.startDate || s.endDate) && (
                       <span className="text-stone-500 text-xs">
                         {s.startDate ? `开始 ${formatDateOnlyFromDate(s.startDate)}` : '开始 即刻'}
@@ -682,6 +720,7 @@ export function PlantDetail() {
                           setEditingScheduleStartDate(s.startDate ?? '')
                           setEditingScheduleEndDate(s.endDate ?? '')
                           setEditingScheduleNote(s.note ?? '')
+                          setEditingScheduleSeasonal(s.seasonalWateringAdjust ?? false)
                         }}
                         className="text-stone-600 text-sm hover:underline"
                       >
@@ -1157,6 +1196,7 @@ function ScheduleForm({
   const [endDate, setEndDate] = useState('')
   const [note, setNote] = useState('')
   const [scope, setScope] = useState<'shared' | 'plant'>('shared')
+  const [seasonalWateringAdjust, setSeasonalWateringAdjust] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -1170,6 +1210,7 @@ function ScheduleForm({
       startDate: startDate || undefined,
       endDate: endDate || undefined,
       note: note || undefined,
+      seasonalWateringAdjust: taskType === 'watering' ? seasonalWateringAdjust : undefined,
     })
     onSuccess()
   }
@@ -1243,6 +1284,16 @@ function ScheduleForm({
           </label>
         </div>
       </div>
+      {taskType === 'watering' && (
+        <label className="inline-flex items-center gap-2 text-sm text-stone-700">
+          <input
+            type="checkbox"
+            checked={seasonalWateringAdjust}
+            onChange={(e) => setSeasonalWateringAdjust(e.target.checked)}
+          />
+          按季节调整浇水间隔（南/北半球月份系数）
+        </label>
+      )}
       <div>
         <label className="block text-xs font-medium text-stone-600 mb-1">备注（可选）</label>
         <MarkdownTextarea

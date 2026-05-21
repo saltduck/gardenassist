@@ -1,3 +1,4 @@
+import { effectiveWateringIntervalDays, monthFromYmd } from '../_shared/season-watering'
 import {
   addDays,
   computeDueFromLast,
@@ -48,6 +49,9 @@ export interface BuildDueTasksParams {
   isoToLocalDate: (iso: string, tzOffsetMinutes: number) => string
   today: string
   mode: DueTaskQueryMode
+  /** 用户 settings.latitude，用于季节浇水 */
+  userLatitude?: number | null
+  currentMonth?: number
 }
 
 function buildLastActionMap(
@@ -111,6 +115,8 @@ export function resolveDueForCalendarDate(
 export function buildDueTasks(params: BuildDueTasksParams): DueTaskRow[] {
   const { plantRows, toPlant, toSchedule, templates, plantSchedules, logs, skips, tzOffsetMinutes, isoToLocalDate, today, mode } =
     params
+  const month = params.currentMonth ?? monthFromYmd(today)
+  const userLat = params.userLatitude ?? null
   const endOfWeek = addDays(today, 6)
   const lastDone = buildLastActionMap(logs, skips, tzOffsetMinutes, isoToLocalDate)
   const byVariety = indexTemplatesByVarietyKey(templates)
@@ -129,23 +135,30 @@ export function buildDueTasks(params: BuildDueTasksParams): DueTaskRow[] {
       const last = lastDone(plantId, t.task_type)
       const startDate = t.start_date ?? null
       const endDate = t.end_date ?? null
+      const intervalDays = effectiveWateringIntervalDays(
+        t.task_type,
+        t.interval_days,
+        Boolean((t as { seasonal_watering_adjust?: number }).seasonal_watering_adjust),
+        month,
+        userLat
+      )
       let nextDue: string | null = null
       let include = false
 
       if (mode.kind === 'range') {
         nextDue =
           mode.range === 'today'
-            ? computeDueFromLast(today, last, t.interval_days, startDate)
-            : computeNextDue(today, last, t.interval_days, startDate)
+            ? computeDueFromLast(today, last, intervalDays, startDate)
+            : computeNextDue(today, last, intervalDays, startDate)
         include = shouldIncludeInRange(mode.range, today, endOfWeek, nextDue, startDate, endDate)
       } else if (mode.kind === 'count-today') {
         if (!inScheduleWindow(today, startDate, endDate)) continue
-        nextDue = computeDueFromLast(today, last, t.interval_days, startDate)
+        nextDue = computeDueFromLast(today, last, intervalDays, startDate)
         if (nextDue === null) continue
         if (endDate && nextDue > endDate) continue
         include = nextDue <= today
       } else if (mode.kind === 'calendar-date') {
-        const resolved = resolveDueForCalendarDate(mode.dateStr, today, last, t.interval_days, startDate, endDate)
+        const resolved = resolveDueForCalendarDate(mode.dateStr, today, last, intervalDays, startDate, endDate)
         nextDue = resolved.nextDue
         include = resolved.include
       }

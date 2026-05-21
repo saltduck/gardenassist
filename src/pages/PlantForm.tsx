@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom'
-import { getPlantById, createPlant, updatePlant } from '../lib/storage-api'
-import { identifyPlant } from '../lib/api'
+import { getPlantById, createPlant, updatePlant, getUserSettings } from '../lib/storage-api'
+import { identifyPlant, identifyPlantOpenAI } from '../lib/api'
 import { uploadPhoto } from '../lib/upload-api'
 import { compressImage } from '../lib/compress-image'
 import { MarkdownTextarea } from '../components/MarkdownTextarea'
@@ -10,9 +10,11 @@ const emptyForm = {
   name: '',
   variety: '',
   location: '',
+  suburb: '',
   plantedAt: new Date().toISOString().slice(0, 10),
   photoUrl: '',
   notes: '',
+  externalPlantId: '' as string | undefined,
 }
 
 export function PlantForm() {
@@ -26,8 +28,24 @@ export function PlantForm() {
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [syncVarietyKey, setSyncVarietyKey] = useState(false)
+  const [identifyConfidence, setIdentifyConfidence] = useState<number | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const photoInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (id) return
+    getUserSettings()
+      .then((s) => {
+        setForm((f) => ({
+          ...f,
+          suburb: f.suburb || s.suburb || '',
+          location: f.location || s.location || '',
+        }))
+      })
+      .catch(() => {
+        /* 默认 suburb 非关键，失败时用户可手填 */
+      })
+  }, [id])
 
   useEffect(() => {
     if (!id) return
@@ -37,9 +55,11 @@ export function PlantForm() {
           name: plant.name,
           variety: plant.variety,
           location: plant.location,
+          suburb: plant.suburb ?? '',
           plantedAt: plant.plantedAt.slice(0, 10),
           photoUrl: plant.photoUrl ?? '',
           notes: plant.notes ?? '',
+          externalPlantId: plant.externalPlantId,
         })
       }
     })
@@ -55,6 +75,7 @@ export function PlantForm() {
           plantedAt: new Date(form.plantedAt).toISOString(),
           photoUrl: form.photoUrl,
           notes: form.notes,
+          externalPlantId: form.externalPlantId || undefined,
           ...(syncVarietyKey ? { syncVarietyKey: true } : {}),
         })
         navigate(`/plants/${id}`)
@@ -64,6 +85,7 @@ export function PlantForm() {
           plantedAt: new Date(form.plantedAt).toISOString(),
           photoUrl: form.photoUrl,
           notes: form.notes,
+          externalPlantId: form.externalPlantId || undefined,
         })
         navigate(`/plants/${created.id}`)
       }
@@ -113,15 +135,27 @@ export function PlantForm() {
               setIdentifyLoading(true)
               try {
                 const toSend = file.size > 1024 * 1024 ? await compressImage(file, 1024 * 1024) : file
-                const [res, up] = await Promise.all([
-                  identifyPlant(toSend),
-                  uploadPhoto(toSend).then((r) => r.url).catch(() => ''),
-                ])
+                const settings = await getUserSettings().catch(() => null)
+                const coords =
+                  settings?.latitude != null && settings?.longitude != null
+                    ? { latitude: settings.latitude, longitude: settings.longitude }
+                    : undefined
+                let res
+                try {
+                  res = await identifyPlant(toSend, coords)
+                } catch {
+                  res = await identifyPlantOpenAI(toSend)
+                }
+                const up = await uploadPhoto(toSend).then((r) => r.url).catch(() => '')
+                setIdentifyConfidence(
+                  res.confidence != null ? Math.round(res.confidence * 100) : null
+                )
                 setForm((f) => ({
                   ...f,
                   name: res.name ?? f.name,
                   variety: res.variety ?? f.variety,
                   photoUrl: up || f.photoUrl,
+                  externalPlantId: res.plantId ?? f.externalPlantId,
                 }))
               } catch (err) {
                 setIdentifyError(err instanceof Error ? err.message : '识别失败')
@@ -158,6 +192,12 @@ export function PlantForm() {
             </p>
           )}
           {identifyError && <p className="mt-1 text-sm text-red-600">{identifyError}</p>}
+          {identifyConfidence != null && !identifyError && (
+            <p className="mt-1 text-sm text-stone-600">
+              识别置信度约 {identifyConfidence}%
+              {identifyConfidence < 50 ? '，请核对后保存' : ''}
+            </p>
+          )}
         </div>
         <div>
           <label htmlFor="location" className="block text-sm font-medium text-stone-700 mb-1">
@@ -170,6 +210,19 @@ export function PlantForm() {
             onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))}
             className="w-full rounded-md border border-stone-300 px-3 py-2 text-stone-800 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
             placeholder="如：阳台、客厅"
+          />
+        </div>
+        <div>
+          <label htmlFor="suburb" className="block text-sm font-medium text-stone-700 mb-1">
+            郊区 / 街区
+          </label>
+          <input
+            id="suburb"
+            type="text"
+            value={form.suburb}
+            onChange={(e) => setForm((f) => ({ ...f, suburb: e.target.value }))}
+            className="w-full rounded-md border border-stone-300 px-3 py-2 text-stone-800 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            placeholder="可选，如 Paddington"
           />
         </div>
         <div>

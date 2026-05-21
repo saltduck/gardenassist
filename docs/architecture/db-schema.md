@@ -109,3 +109,64 @@ User
 | nextDue | 算法得出的应执行日期 YYYY-MM-DD |
 | 共享计划 | templates 表，同 key 多株共用 |
 | 仅此植株计划 | care_schedules 表，单 plantId |
+
+---
+
+## 规划扩展（v1.1，未迁移）
+
+权威定义见 product-spec **§3.14** 与 [`../requirements/planned-v1.1.md`](../requirements/planned-v1.1.md)。实现时需**新增迁移**，并更新上表。
+
+### 认证
+
+| 表（规划） | 字段 | 说明 |
+|------------|------|------|
+| `password_reset_tokens` | `id`, `user_id`, `token`, `expires_at`, `used_at` | 找回密码一次性 token |
+
+### UserSettings（扩展）
+
+| 字段（规划） | 说明 |
+|--------------|------|
+| `suburb` | 郊区/街区 |
+| `latitude`, `longitude` | 地理编码结果，供天气与 Plant.id |
+
+### Plant（扩展）
+
+| 字段（规划） | 说明 |
+|--------------|------|
+| `suburb` | 可继承 settings 默认 |
+| `map_x`, `map_y` | 花园平面图归一化坐标 0–1 |
+| `garden_map_id` | FK → garden_maps |
+| `external_plant_id` | Plant.id 返回的植物 ID（可选） |
+
+### CareSchedule / Template（扩展）
+
+| 字段（规划） | 说明 |
+|--------------|------|
+| `seasonal_watering_adjust` | boolean，仅影响 watering 的有效 interval |
+
+季节系数可存 `season_month_factors` 配置表或 Workers KV JSON，见 product-spec §3.14.4。
+
+### DailyWeather（扩展）
+
+| 字段（规划） | 说明 |
+|--------------|------|
+| `source` | `auto` \| `user` |
+| `fetched_at` | ISO，自动抓取时间 |
+
+### GardenMap（新表，规划）
+
+| 字段 | 说明 |
+|------|------|
+| `id`, `user_id`, `image_url`, `name`, `created_at` | 用户花园俯视图；图存 R2 |
+
+### 逻辑 ER（规划后）
+
+```
+User
+├── PasswordResetToken
+├── UserSettings (+ suburb, lat, lon)
+├── GardenMap
+├── Plant (+ suburb, map_x, map_y, external_plant_id)
+├── …（其余同现网）
+└── DailyWeather (+ source, fetched_at)
+```

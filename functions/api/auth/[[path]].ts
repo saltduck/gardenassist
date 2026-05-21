@@ -1,4 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { buildResetUrl, sendPasswordResetEmail } from '../_shared/mail'
+import { hashPassword, hashToken } from '../_shared/password'
+import { consumeRateLimit, getClientIp } from '../_shared/rate-limit'
 import {
   SESSION_TTL_DAYS,
   buildSessionSetCookie,
@@ -8,7 +11,12 @@ import {
   type SessionD1,
 } from '../_shared/session'
 
-type Env = { DB: SessionD1 }
+type Env = {
+  DB: SessionD1
+  RESEND_API_KEY?: string
+  MAIL_FROM?: string
+  APP_BASE_URL?: string
+}
 type Context = { request: Request; env: Env; params: { path?: string } }
 
 function json(data: unknown, request: Request, init?: ResponseInit) {
@@ -21,14 +29,7 @@ function json(data: unknown, request: Request, init?: ResponseInit) {
   })
 }
 
-async function hashPassword(password: string, salt: string): Promise<string> {
-  const data = new TextEncoder().encode(salt + password)
-  const digest = await crypto.subtle.digest('SHA-256', data)
-  const bytes = new Uint8Array(digest)
-  return Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('')
-}
+const FORGOT_SUCCESS_MSG = '若该邮箱已注册，将收到重置链接（请检查垃圾箱）'
 
 export const onRequest = async (context: Context) => {
   try {
@@ -149,6 +150,99 @@ export const onRequest = async (context: Context) => {
       return json({ success: true }, request, {
         headers: { 'Set-Cookie': buildSessionSetCookie(null, isSecure) },
       })
+    }
+
+    if (path === 'forgot-password' && method === 'POST') {
+      let body: any
+      try {
+        body = await request.json()
+      } catch {
+        return json({ error: '请求体不是合法 JSON' }, request, { status: 400 })
+      }
+      const emailRaw = String(body.email || '').trim()
+      if (!emailRaw) {
+        return json({ error: '邮箱必填' }, request, { status: 400 })
+      }
+      const email = emailRaw.toLowerCase()
+      const ip = getClientIp(request)
+      const ipLimit = await consumeRateLimit(env.DB, `forgot:ip:${ip}`, 10, 60 * 60 * 1000)
+      if (!ipLimit.allowed) {
+        return json({ error: '请求过于频繁，请稍后再试' }, request, { status: 429 })
+      }
+      const emailLimit = await consumeRateLimit(env.DB, `forgot:email:${email}`, 3, 60 * 60 * 1000)
+      if (!emailLimit.allowed) {
+        return json({ success: true, message: FORGOT_SUCCESS_MSG }, request)
+      }
+      const { results } = await env.DB
+        .prepare('SELECT id FROM users WHERE email = ? LIMIT 1')
+        .bind(email)
+        .all()
+      const row = (results as any[])[0]
+      if (row) {
+        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+        const { results: recent } = await env.DB
+          .prepare(
+            'SELECT COUNT(*) AS c FROM password_reset_tokens WHERE user_id = ? AND created_at > ? AND used_at IS NULL'
+          )
+          .bind(row.id, oneHourAgo)
+          .all()
+        const count = Number((recent as any[])[0]?.c ?? 0)
+        if (count < 3) {
+          const token = crypto.randomUUID() + crypto.randomUUID().replace(/-/g, '')
+          const tokenHash = await hashToken(token)
+          const expires = new Date(Date.now() + 60 * 60 * 1000).toISOString()
+          const now = new Date().toISOString()
+          await env.DB
+            .prepare(
+              'INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at, created_at) VALUES (?, ?, ?, ?, ?)'
+            )
+            .bind(crypto.randomUUID(), row.id, tokenHash, expires, now)
+            .run()
+          const resetUrl = buildResetUrl(env, token)
+          await sendPasswordResetEmail(env, email, resetUrl)
+        }
+      }
+      return json({ success: true, message: FORGOT_SUCCESS_MSG }, request)
+    }
+
+    if (path === 'reset-password' && method === 'POST') {
+      let body: any
+      try {
+        body = await request.json()
+      } catch {
+        return json({ error: '请求体不是合法 JSON' }, request, { status: 400 })
+      }
+      const token = String(body.token || '').trim()
+      const newPassword = String(body.newPassword || '')
+      if (!token || !newPassword) {
+        return json({ error: 'token 与新密码必填' }, request, { status: 400 })
+      }
+      if (newPassword.length < 6) {
+        return json({ error: '新密码至少 6 位' }, request, { status: 400 })
+      }
+      const tokenHash = await hashToken(token)
+      const now = new Date().toISOString()
+      const { results } = await env.DB
+        .prepare(
+          'SELECT id, user_id FROM password_reset_tokens WHERE token_hash = ? AND used_at IS NULL AND expires_at > ? LIMIT 1'
+        )
+        .bind(tokenHash, now)
+        .all()
+      const tok = (results as any[])[0]
+      if (!tok) {
+        return json({ error: '链接无效或已过期' }, request, { status: 400 })
+      }
+      const newSalt = crypto.randomUUID().replace(/-/g, '')
+      const newHash = await hashPassword(newPassword, newSalt)
+      await env.DB
+        .prepare('UPDATE users SET password_hash = ?, salt = ? WHERE id = ?')
+        .bind(newHash, newSalt, tok.user_id)
+        .run()
+      await env.DB
+        .prepare('UPDATE password_reset_tokens SET used_at = ? WHERE user_id = ? AND used_at IS NULL')
+        .bind(now, tok.user_id)
+        .run()
+      return json({ success: true }, request)
     }
 
     if (path === 'change-password' && method === 'POST') {

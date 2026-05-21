@@ -1,4 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { resolveWeatherCoords } from '../_shared/geocode'
+import { consumeRateLimit } from '../_shared/rate-limit'
+import { fetchOpenMeteoDaily } from '../_shared/weather-sync'
+import { monthFromYmd } from '../_shared/season-watering'
 import { corsHeaders, getCurrentUser } from '../_shared/session'
 import {
   buildDueTasks,
@@ -46,9 +50,14 @@ function toPlant(row: any) {
     name: row.name,
     variety: row.variety ?? '',
     location: row.location ?? '',
+    suburb: row.suburb ?? '',
     plantedAt: row.planted_at,
     photoUrl: row.photo_url ?? undefined,
     notes: row.notes ?? undefined,
+    mapX: row.map_x != null ? Number(row.map_x) : undefined,
+    mapY: row.map_y != null ? Number(row.map_y) : undefined,
+    gardenMapId: row.garden_map_id ?? undefined,
+    externalPlantId: row.external_plant_id ?? undefined,
     archivedAt: row.archived_at ?? undefined,
     archiveReason: row.archive_reason ?? undefined,
     createdAt: row.created_at,
@@ -102,6 +111,7 @@ function toSchedule(row: any) {
     startDate: row.start_date ?? undefined,
     endDate: row.end_date ?? undefined,
     note: row.note ?? undefined,
+    seasonalWateringAdjust: Boolean(row.seasonal_watering_adjust),
     createdAt: row.created_at,
   }
 }
@@ -112,8 +122,26 @@ function toDailyWeather(row: any) {
     tempMaxC: row.temp_max_c != null ? Number(row.temp_max_c) : null,
     tempMinC: row.temp_min_c != null ? Number(row.temp_min_c) : null,
     precipitationMm: row.precipitation_mm != null ? Number(row.precipitation_mm) : null,
+    source: row.source ?? 'user',
+    fetchedAt: row.fetched_at ?? undefined,
     updatedAt: row.updated_at,
   }
+}
+
+function toGardenMap(row: any) {
+  return {
+    id: row.id,
+    imageUrl: row.image_url,
+    name: row.name ?? '',
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+async function loadUserLatitude(env: Env, userId: string): Promise<number | null> {
+  const { results } = await env.DB.prepare('SELECT latitude FROM user_settings WHERE user_id = ?').bind(userId).all()
+  const lat = (results as any[])[0]?.latitude
+  return lat != null && Number.isFinite(Number(lat)) ? Number(lat) : null
 }
 
 function parseOptionalWeatherNumber(body: Record<string, unknown>, key: string): number | null | undefined {
@@ -167,7 +195,8 @@ async function loadDueTaskSourceData(env: Env, userId: string) {
 function dueTaskBuildBase(
   data: Awaited<ReturnType<typeof loadDueTaskSourceData>>,
   tzOffsetMinutes: number,
-  today: string
+  today: string,
+  userLatitude: number | null
 ) {
   return {
     ...data,
@@ -176,6 +205,8 @@ function dueTaskBuildBase(
     tzOffsetMinutes,
     isoToLocalDate,
     today,
+    userLatitude,
+    currentMonth: monthFromYmd(today),
   }
 }
 
@@ -218,7 +249,16 @@ export const onRequest = async (context: Context) => {
         .bind(user.id)
         .all()
       const row = (results as any[])[0]
-      return Response.json({ location: row?.location ?? '', timeZone: row?.time_zone ?? '' }, { headers: CORS })
+      return Response.json(
+        {
+          location: row?.location ?? '',
+          timeZone: row?.time_zone ?? '',
+          suburb: row?.suburb ?? '',
+          latitude: row?.latitude != null ? Number(row.latitude) : null,
+          longitude: row?.longitude != null ? Number(row.longitude) : null,
+        },
+        { headers: CORS }
+      )
     }
 
     // PUT /api/data/settings
@@ -226,14 +266,36 @@ export const onRequest = async (context: Context) => {
       const body = (await request.json()) as any
       const location = typeof body.location === 'string' ? body.location : ''
       const timeZone = typeof body.timeZone === 'string' ? body.timeZone : ''
+      const suburb = typeof body.suburb === 'string' ? body.suburb : ''
+      const latitude =
+        body.latitude === null || body.latitude === undefined
+          ? null
+          : Number.isFinite(Number(body.latitude))
+            ? Number(body.latitude)
+            : null
+      const longitude =
+        body.longitude === null || body.longitude === undefined
+          ? null
+          : Number.isFinite(Number(body.longitude))
+            ? Number(body.longitude)
+            : null
+      let lat = latitude
+      let lon = longitude
+      if ((lat == null || lon == null) && (suburb.trim() || location.trim())) {
+        const g = await resolveWeatherCoords({ suburb, location, latitude: lat, longitude: lon })
+        if (g) {
+          lat = g.latitude
+          lon = g.longitude
+        }
+      }
       const now = new Date().toISOString()
       await env.DB
         .prepare(
-          'INSERT OR REPLACE INTO user_settings (user_id, location, time_zone, updated_at) VALUES (?, ?, ?, ?)'
+          'INSERT OR REPLACE INTO user_settings (user_id, location, time_zone, suburb, latitude, longitude, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
         )
-        .bind(user.id, location, timeZone, now)
+        .bind(user.id, location, timeZone, suburb, lat, lon, now)
         .run()
-      return Response.json({ location, timeZone }, { headers: CORS })
+      return Response.json({ location, timeZone, suburb, latitude: lat, longitude: lon }, { headers: CORS })
     }
 
     // POST /api/data/plants
@@ -242,8 +304,16 @@ export const onRequest = async (context: Context) => {
       const id = crypto.randomUUID()
       const now = new Date().toISOString()
       const vkey = normalizeVarietyKey(body.name ?? '', body.variety ?? '')
+      let plantSuburb = typeof body.suburb === 'string' ? body.suburb : ''
+      if (!plantSuburb.trim()) {
+        const { results: srows } = await env.DB
+          .prepare('SELECT suburb FROM user_settings WHERE user_id = ?')
+          .bind(user.id)
+          .all()
+        plantSuburb = ((srows as any[])[0]?.suburb as string) ?? ''
+      }
       await env.DB.prepare(
-        'INSERT INTO plants (id, name, variety, variety_key, location, planted_at, photo_url, notes, created_at, updated_at, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO plants (id, name, variety, variety_key, location, suburb, planted_at, photo_url, notes, external_plant_id, created_at, updated_at, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
       )
         .bind(
           id,
@@ -251,9 +321,11 @@ export const onRequest = async (context: Context) => {
           body.variety ?? '',
           vkey,
           body.location ?? '',
+          plantSuburb,
           body.plantedAt ?? now.slice(0, 10),
           body.photoUrl ?? null,
           body.notes ?? null,
+          body.externalPlantId ?? null,
           now,
           now,
           user.id
@@ -288,6 +360,9 @@ export const onRequest = async (context: Context) => {
       const nextNotes = body.notes !== undefined ? body.notes : current.notes
       const nextArchivedAt = body.archivedAt !== undefined ? body.archivedAt : current.archived_at
       const nextArchiveReason = body.archiveReason !== undefined ? body.archiveReason : current.archive_reason
+      const nextSuburb = body.suburb !== undefined ? body.suburb : current.suburb
+      const nextExternalPlantId =
+        body.externalPlantId !== undefined ? body.externalPlantId : current.external_plant_id
       // 默认保留 variety_key：重命名「品种」展示文字不应断开与同品种共享养护模板的匹配。
       // 仅当显式 syncVarietyKey，或当前 key 为空时，才用名称+品种重新计算。
       const curVkey = (current.variety_key ?? '').toString().trim()
@@ -298,16 +373,18 @@ export const onRequest = async (context: Context) => {
           ? normalizeVarietyKey(nextName ?? '', nextVariety ?? '')
           : curVkey
       await env.DB.prepare(
-        'UPDATE plants SET name=?, variety=?, variety_key=?, location=?, planted_at=?, photo_url=?, notes=?, archived_at=?, archive_reason=?, updated_at=? WHERE id=?'
+        'UPDATE plants SET name=?, variety=?, variety_key=?, location=?, suburb=?, planted_at=?, photo_url=?, notes=?, external_plant_id=?, archived_at=?, archive_reason=?, updated_at=? WHERE id=?'
       )
         .bind(
           nextName ?? '',
           nextVariety ?? '',
           nextVarietyKey,
           nextLocation ?? '',
+          nextSuburb ?? '',
           nextPlantedAt ?? '',
           nextPhotoUrl ?? null,
           nextNotes ?? null,
+          nextExternalPlantId ?? null,
           nextArchivedAt ?? null,
           nextArchiveReason ?? null,
           now,
@@ -443,7 +520,7 @@ export const onRequest = async (context: Context) => {
         const sid = crypto.randomUUID()
         await env.DB
           .prepare(
-            'INSERT INTO care_schedules (id, plant_id, task_type, interval_days, start_date, end_date, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO care_schedules (id, plant_id, task_type, interval_days, start_date, end_date, note, seasonal_watering_adjust, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
           )
           .bind(
             sid,
@@ -453,6 +530,7 @@ export const onRequest = async (context: Context) => {
             body.startDate ?? null,
             body.endDate ?? null,
             body.note ?? null,
+            body.seasonalWateringAdjust ? 1 : 0,
             now
           )
           .run()
@@ -463,7 +541,7 @@ export const onRequest = async (context: Context) => {
       const tid = crypto.randomUUID()
       await env.DB
         .prepare(
-          'INSERT INTO care_schedule_templates (id, user_id, variety_key, task_type, interval_days, start_date, end_date, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          'INSERT INTO care_schedule_templates (id, user_id, variety_key, task_type, interval_days, start_date, end_date, note, seasonal_watering_adjust, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         )
         .bind(
           tid,
@@ -474,6 +552,7 @@ export const onRequest = async (context: Context) => {
           body.startDate ?? null,
           body.endDate ?? null,
           body.note ?? null,
+          body.seasonalWateringAdjust ? 1 : 0,
           now
         )
         .run()
@@ -580,9 +659,25 @@ export const onRequest = async (context: Context) => {
         const nextStartDate = body.startDate !== undefined ? body.startDate : current.start_date
         const nextEndDate = body.endDate !== undefined ? body.endDate : current.end_date
         const nextNote = body.note !== undefined ? body.note : current.note
+        const nextSeasonal =
+          body.seasonalWateringAdjust !== undefined
+            ? body.seasonalWateringAdjust
+              ? 1
+              : 0
+            : current.seasonal_watering_adjust
         await env.DB
-          .prepare('UPDATE care_schedules SET task_type = ?, interval_days = ?, start_date = ?, end_date = ?, note = ? WHERE id = ?')
-          .bind(nextTaskType, nextIntervalDays, nextStartDate ?? null, nextEndDate ?? null, nextNote ?? null, sid.id)
+          .prepare(
+            'UPDATE care_schedules SET task_type = ?, interval_days = ?, start_date = ?, end_date = ?, note = ?, seasonal_watering_adjust = ? WHERE id = ?'
+          )
+          .bind(
+            nextTaskType,
+            nextIntervalDays,
+            nextStartDate ?? null,
+            nextEndDate ?? null,
+            nextNote ?? null,
+            nextSeasonal,
+            sid.id
+          )
           .run()
         const after = await env.DB.prepare('SELECT * FROM care_schedules WHERE id = ?').bind(sid.id).all()
         return Response.json(toSchedule({ ...(after.results as any[])[0], scope: 'plant' }), { headers: CORS })
@@ -599,9 +694,25 @@ export const onRequest = async (context: Context) => {
       const nextStartDate = body.startDate !== undefined ? body.startDate : current.start_date
       const nextEndDate = body.endDate !== undefined ? body.endDate : current.end_date
       const nextNote = body.note !== undefined ? body.note : current.note
+      const nextSeasonal =
+        body.seasonalWateringAdjust !== undefined
+          ? body.seasonalWateringAdjust
+            ? 1
+            : 0
+          : current.seasonal_watering_adjust
       await env.DB
-        .prepare('UPDATE care_schedule_templates SET task_type = ?, interval_days = ?, start_date = ?, end_date = ?, note = ? WHERE id = ?')
-        .bind(nextTaskType, nextIntervalDays, nextStartDate ?? null, nextEndDate ?? null, nextNote ?? null, sid.id)
+        .prepare(
+          'UPDATE care_schedule_templates SET task_type = ?, interval_days = ?, start_date = ?, end_date = ?, note = ?, seasonal_watering_adjust = ? WHERE id = ?'
+        )
+        .bind(
+          nextTaskType,
+          nextIntervalDays,
+          nextStartDate ?? null,
+          nextEndDate ?? null,
+          nextNote ?? null,
+          nextSeasonal,
+          sid.id
+        )
         .run()
       const after = await env.DB.prepare('SELECT * FROM care_schedule_templates WHERE id = ?').bind(sid.id).all()
       return Response.json(toSchedule({ ...(after.results as any[])[0], plant_id: current.plant_id ?? '', scope: 'shared' }), { headers: CORS })
@@ -611,9 +722,12 @@ export const onRequest = async (context: Context) => {
     if (pathParts[0] === 'tasks' && pathParts[1] === 'due' && pathParts.length === 2 && method === 'GET') {
       const range = (url.searchParams.get('range') || 'today') as 'today' | 'week'
       const today = todayLocal(tzOffsetMinutes)
-      const data = await loadDueTaskSourceData(env, user.id)
+      const [data, userLat] = await Promise.all([
+        loadDueTaskSourceData(env, user.id),
+        loadUserLatitude(env, user.id),
+      ])
       const result = buildDueTasks({
-        ...dueTaskBuildBase(data, tzOffsetMinutes, today),
+        ...dueTaskBuildBase(data, tzOffsetMinutes, today, userLat),
         mode: { kind: 'range', range: range === 'week' ? 'week' : 'today' },
       })
       return Response.json(result, { headers: CORS })
@@ -622,8 +736,11 @@ export const onRequest = async (context: Context) => {
     // GET /api/data/tasks/today-count
     if (pathParts[0] === 'tasks' && pathParts[1] === 'today-count' && method === 'GET') {
       const today = todayLocal(tzOffsetMinutes)
-      const data = await loadDueTaskSourceData(env, user.id)
-      const count = countTodayDueTasks(dueTaskBuildBase(data, tzOffsetMinutes, today))
+      const [data, userLat] = await Promise.all([
+        loadDueTaskSourceData(env, user.id),
+        loadUserLatitude(env, user.id),
+      ])
+      const count = countTodayDueTasks(dueTaskBuildBase(data, tzOffsetMinutes, today, userLat))
       return Response.json(count, { headers: CORS })
     }
 
@@ -631,9 +748,12 @@ export const onRequest = async (context: Context) => {
     if (pathParts[0] === 'tasks' && pathParts[1] === 'due' && pathParts.length === 3 && method === 'GET') {
       const dateStr = pathParts[2]
       const today = todayLocal(tzOffsetMinutes)
-      const data = await loadDueTaskSourceData(env, user.id)
+      const [data, userLat] = await Promise.all([
+        loadDueTaskSourceData(env, user.id),
+        loadUserLatitude(env, user.id),
+      ])
       const result = buildDueTasks({
-        ...dueTaskBuildBase(data, tzOffsetMinutes, today),
+        ...dueTaskBuildBase(data, tzOffsetMinutes, today, userLat),
         mode: { kind: 'calendar-date', dateStr },
       })
       return Response.json(result, { headers: CORS })
@@ -675,6 +795,137 @@ export const onRequest = async (context: Context) => {
       }
       const getPlant = (pid: string) => plants.find((p: any) => p.id === pid)
       return Response.json(logs.map((log: any) => ({ log, plant: getPlant(log.plantId) })), { headers: CORS })
+    }
+
+    // GET /api/data/garden-map
+    if (path === 'garden-map' && method === 'GET') {
+      const { results } = await env.DB
+        .prepare('SELECT * FROM garden_maps WHERE user_id = ? ORDER BY updated_at DESC LIMIT 1')
+        .bind(user.id)
+        .all()
+      const row = (results as any[])[0]
+      if (!row) return Response.json(null, { headers: CORS })
+      return Response.json(toGardenMap(row), { headers: CORS })
+    }
+
+    // PUT /api/data/garden-map
+    if (path === 'garden-map' && method === 'PUT') {
+      const body = (await request.json()) as any
+      const imageUrl = typeof body.imageUrl === 'string' ? body.imageUrl : ''
+      const name = typeof body.name === 'string' ? body.name : ''
+      if (!imageUrl) return Response.json({ error: 'imageUrl 必填' }, { status: 400, headers: CORS })
+      const now = new Date().toISOString()
+      const { results: existing } = await env.DB
+        .prepare('SELECT id FROM garden_maps WHERE user_id = ? ORDER BY updated_at DESC LIMIT 1')
+        .bind(user.id)
+        .all()
+      const ex = (existing as any[])[0]
+      if (ex) {
+        await env.DB
+          .prepare('UPDATE garden_maps SET image_url = ?, name = ?, updated_at = ? WHERE id = ? AND user_id = ?')
+          .bind(imageUrl, name, now, ex.id, user.id)
+          .run()
+        const { results } = await env.DB.prepare('SELECT * FROM garden_maps WHERE id = ?').bind(ex.id).all()
+        return Response.json(toGardenMap((results as any[])[0]), { headers: CORS })
+      }
+      const id = crypto.randomUUID()
+      await env.DB
+        .prepare(
+          'INSERT INTO garden_maps (id, user_id, image_url, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+        )
+        .bind(id, user.id, imageUrl, name, now, now)
+        .run()
+      const { results } = await env.DB.prepare('SELECT * FROM garden_maps WHERE id = ?').bind(id).all()
+      return Response.json(toGardenMap((results as any[])[0]), { status: 201, headers: CORS })
+    }
+
+    // PUT /api/data/plants/:id/map-position
+    if (pathParts[0] === 'plants' && pathParts[2] === 'map-position' && pathParts.length === 3 && method === 'PUT') {
+      const plantId = pathParts[1]
+      const body = (await request.json()) as any
+      const mapX = Number(body.mapX)
+      const mapY = Number(body.mapY)
+      if (!Number.isFinite(mapX) || !Number.isFinite(mapY) || mapX < 0 || mapX > 1 || mapY < 0 || mapY > 1) {
+        return Response.json({ error: 'mapX/mapY 须在 0–1 之间' }, { status: 400, headers: CORS })
+      }
+      const gardenMapId = typeof body.gardenMapId === 'string' ? body.gardenMapId : null
+      const now = new Date().toISOString()
+      const res = await env.DB
+        .prepare(
+          'UPDATE plants SET map_x = ?, map_y = ?, garden_map_id = ?, updated_at = ? WHERE id = ? AND user_id = ?'
+        )
+        .bind(mapX, mapY, gardenMapId, now, plantId, user.id)
+        .run()
+      const { results } = await env.DB.prepare('SELECT * FROM plants WHERE id = ? AND user_id = ?').bind(plantId, user.id).all()
+      if (!(results as any[]).length) return Response.json({ error: 'Not found' }, { status: 404, headers: CORS })
+      return Response.json(toPlant((results as any[])[0]), { headers: CORS })
+    }
+
+    // POST /api/data/weather/sync?from=&to=
+    if (path === 'weather/sync' && method === 'POST') {
+      const from = url.searchParams.get('from')
+      const to = url.searchParams.get('to')
+      if (!from || !to || !/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+        return Response.json({ error: '请提供有效的 from、to（YYYY-MM-DD）' }, { status: 400, headers: CORS })
+      }
+      const weatherRl = await consumeRateLimit(env.DB, `weather:${user.id}`, 12, 5 * 60 * 1000)
+      if (!weatherRl.allowed) {
+        return Response.json({ error: '天气同步过于频繁，请稍后再试' }, { status: 429, headers: CORS })
+      }
+      const { results: settingsRows } = await env.DB
+        .prepare('SELECT latitude, longitude, suburb, location FROM user_settings WHERE user_id = ?')
+        .bind(user.id)
+        .all()
+      const s = (settingsRows as any[])[0]
+      const coord = await resolveWeatherCoords({
+        latitude: s?.latitude != null ? Number(s.latitude) : null,
+        longitude: s?.longitude != null ? Number(s.longitude) : null,
+        suburb: s?.suburb ?? '',
+        location: s?.location ?? '',
+      })
+      if (!coord) {
+        return Response.json(
+          { error: '请先在设置中填写 suburb/所在地或经纬度（用于天气同步）' },
+          { status: 400, headers: CORS }
+        )
+      }
+      const lat = coord.latitude
+      const lon = coord.longitude
+      let days
+      try {
+        days = await fetchOpenMeteoDaily({ latitude: lat, longitude: lon }, from, to)
+      } catch (e) {
+        return Response.json(
+          { error: e instanceof Error ? e.message : '天气同步失败' },
+          { status: 502, headers: CORS }
+        )
+      }
+      const now = new Date().toISOString()
+      let synced = 0
+      for (const d of days) {
+        const { results: existing } = await env.DB
+          .prepare('SELECT source FROM daily_weather WHERE user_id = ? AND date = ?')
+          .bind(user.id, d.date)
+          .all()
+        const cur = (existing as any[])[0]
+        if (cur?.source === 'user') continue
+        await env.DB
+          .prepare(
+            `INSERT INTO daily_weather (user_id, date, temp_max_c, temp_min_c, precipitation_mm, updated_at, source, fetched_at)
+             VALUES (?, ?, ?, ?, ?, ?, 'auto', ?)
+             ON CONFLICT(user_id, date) DO UPDATE SET
+               temp_max_c = excluded.temp_max_c,
+               temp_min_c = excluded.temp_min_c,
+               precipitation_mm = excluded.precipitation_mm,
+               updated_at = excluded.updated_at,
+               source = 'auto',
+               fetched_at = excluded.fetched_at`
+          )
+          .bind(user.id, d.date, d.tempMaxC, d.tempMinC, d.precipitationMm, now, now)
+          .run()
+        synced++
+      }
+      return Response.json({ synced, from, to }, { headers: CORS })
     }
 
     // GET /api/data/weather/range?from=YYYY-MM-DD&to=YYYY-MM-DD
@@ -735,7 +986,15 @@ export const onRequest = async (context: Context) => {
       }
       await env.DB
         .prepare(
-          'INSERT INTO daily_weather (user_id, date, temp_max_c, temp_min_c, precipitation_mm, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(user_id, date) DO UPDATE SET temp_max_c = excluded.temp_max_c, temp_min_c = excluded.temp_min_c, precipitation_mm = excluded.precipitation_mm, updated_at = excluded.updated_at'
+          `INSERT INTO daily_weather (user_id, date, temp_max_c, temp_min_c, precipitation_mm, updated_at, source, fetched_at)
+           VALUES (?, ?, ?, ?, ?, ?, 'user', NULL)
+           ON CONFLICT(user_id, date) DO UPDATE SET
+             temp_max_c = excluded.temp_max_c,
+             temp_min_c = excluded.temp_min_c,
+             precipitation_mm = excluded.precipitation_mm,
+             updated_at = excluded.updated_at,
+             source = 'user',
+             fetched_at = NULL`
         )
         .bind(user.id, dateStr, mergedMax, mergedMin, mergedP, now)
         .run()

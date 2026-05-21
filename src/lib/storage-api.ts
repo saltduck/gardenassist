@@ -3,7 +3,7 @@
  * 所有方法均为 async，组件需在 useEffect 中调用并 setState。
  */
 import type { Plant, GrowthRecord, CareLog, CareSchedule, CareSkip } from '../types/plant'
-import type { AppSettings, DailyWeather, DueTask, TimelineItem } from '../types/data'
+import type { AppSettings, DailyWeather, DueTask, GardenMapMeta, TimelineItem } from '../types/data'
 import { ApiError } from './api-error'
 
 const API_BASE = '/api/data'
@@ -30,7 +30,9 @@ export async function getPlantById(id: string): Promise<Plant | undefined> {
   return await fetchJson<Plant>(`/plants/${id}`)
 }
 
-export async function createPlant(input: Omit<Plant, 'id' | 'createdAt' | 'updatedAt'>): Promise<Plant> {
+export async function createPlant(
+  input: Omit<Plant, 'id' | 'createdAt' | 'updatedAt'> & { externalPlantId?: string }
+): Promise<Plant> {
   return await fetchJson<Plant>('/plants', {
     method: 'POST',
     body: JSON.stringify(input),
@@ -42,6 +44,7 @@ export async function updatePlant(
   input: Partial<Omit<Plant, 'id' | 'createdAt' | 'archivedAt' | 'archiveReason'>> & {
     archivedAt?: string | null
     archiveReason?: 'death' | 'moved' | 'other' | null
+    externalPlantId?: string | null
     /** 为 true 时用当前名称+品种重算 variety_key，会改变与同品种共享养护模板的匹配 */
     syncVarietyKey?: boolean
   }
@@ -197,6 +200,55 @@ export async function upsertDailyWeather(
 
 export async function deleteDailyWeather(date: string): Promise<void> {
   await fetchJson(`/weather/${date}`, { method: 'DELETE' })
+}
+
+export async function syncWeatherRange(from: string, to: string): Promise<{ synced: number }> {
+  return await fetchJson<{ synced: number }>(
+    `/weather/sync?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+    { method: 'POST' }
+  )
+}
+
+/** 用户时区下 today±7 天自动同步 */
+export async function syncWeatherAroundToday(tzOffsetMinutes: number): Promise<{ synced: number }> {
+  const today = toYmdWithOffset(new Date(), tzOffsetMinutes)
+  const from = addDaysYmd(today, -7)
+  const to = addDaysYmd(today, 7)
+  return syncWeatherRange(from, to)
+}
+
+function toYmdWithOffset(d: Date, tzOffsetMinutes: number): string {
+  const ms = d.getTime() - tzOffsetMinutes * 60_000
+  return new Date(ms).toISOString().slice(0, 10)
+}
+
+function addDaysYmd(ymd: string, delta: number): string {
+  const [y, m, day] = ymd.split('-').map(Number)
+  const dt = new Date(Date.UTC(y, m - 1, day + delta))
+  return dt.toISOString().slice(0, 10)
+}
+
+export async function getGardenMap(): Promise<GardenMapMeta | null> {
+  return await fetchJson<GardenMapMeta | null>('/garden-map')
+}
+
+export async function saveGardenMap(input: { imageUrl: string; name?: string }): Promise<GardenMapMeta> {
+  return await fetchJson<GardenMapMeta>('/garden-map', {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  })
+}
+
+export async function updatePlantMapPosition(
+  plantId: string,
+  mapX: number,
+  mapY: number,
+  gardenMapId?: string
+): Promise<Plant> {
+  return await fetchJson<Plant>(`/plants/${plantId}/map-position`, {
+    method: 'PUT',
+    body: JSON.stringify({ mapX, mapY, gardenMapId }),
+  })
 }
 
 export async function getUserSettings(): Promise<AppSettings> {

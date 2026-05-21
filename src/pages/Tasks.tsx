@@ -3,12 +3,13 @@ import { Link } from 'react-router-dom'
 import { getDueTasks, addCareLog, addCareSkip, deleteCareSchedule, updateCareSchedule } from '../lib/storage-api'
 import type { DueTask } from '../lib/storage-api'
 import type { CareTaskType } from '../types/plant'
-import { CARE_TASK_TYPES } from '../types/plant'
+import { CARE_TASK_TYPES, type CareSchedule } from '../types/plant'
 import { MarkdownView } from '../components/MarkdownView'
 import { MarkdownTextarea } from '../components/MarkdownTextarea'
 import { getUserSettings } from '../lib/storage-api'
 import { getBrowserIanaTimeZone, getTimeZoneOffsetMinutes, resolveCalendarTimeZone, toYmdInTimeZone } from '../lib/calendar-timezone'
 import { getErrorMessage } from '../lib/api-error'
+import { formatScheduleIntervalDisplay } from '../lib/season-watering'
 
 function formatDate(dateStr: string) {
   return new Date(dateStr + 'T12:00:00').toLocaleDateString('zh-CN', {
@@ -66,11 +67,13 @@ function careTaskTypeBadgeClass(taskType: string): string {
 function TaskRow({
   task,
   todayStr,
+  userLatitude,
   onOpenComplete,
   onAfterChange,
 }: {
   task: DueTask
   todayStr: string
+  userLatitude: number | null
   onOpenComplete: () => void
   onAfterChange: () => void
 }) {
@@ -82,6 +85,9 @@ function TaskRow({
   const [startDate, setStartDate] = useState(task.schedule.startDate ?? '')
   const [endDate, setEndDate] = useState(task.schedule.endDate ?? '')
   const [note, setNote] = useState(task.schedule.note ?? '')
+  const [seasonalWateringAdjust, setSeasonalWateringAdjust] = useState(
+    task.schedule.seasonalWateringAdjust ?? false
+  )
 
   return (
     <li className="rounded-lg border border-stone-200 bg-white p-3">
@@ -106,6 +112,14 @@ function TaskRow({
             <MarkdownView value={task.schedule.note} />
           </div>
         )}
+        <span className="ml-2 text-sm text-stone-500">
+          {formatScheduleIntervalDisplay(
+            task.schedule.intervalDays,
+            task.schedule.taskType,
+            task.schedule.seasonalWateringAdjust,
+            userLatitude
+          )}
+        </span>
         <span className={`ml-2 text-sm ${isOverdue ? 'text-red-600' : 'text-stone-500'}`}>
           {formatDate(task.nextDue)}
           {isOverdue && '（已逾期）'}
@@ -175,7 +189,7 @@ function TaskRow({
               <label className="block text-xs font-medium text-stone-600 mb-1">类型</label>
               <select
                 value={taskType}
-                onChange={(e) => setTaskType(e.target.value as any)}
+                onChange={(e) => setTaskType(e.target.value as CareSchedule['taskType'])}
                 className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
               >
                 {CARE_TASK_TYPES.map((t) => (
@@ -214,6 +228,16 @@ function TaskRow({
               />
             </div>
           </div>
+          {taskType === 'watering' && (
+            <label className="mt-3 flex items-center gap-2 text-sm text-stone-700">
+              <input
+                type="checkbox"
+                checked={seasonalWateringAdjust}
+                onChange={(e) => setSeasonalWateringAdjust(e.target.checked)}
+              />
+              按季节调整浇水间隔
+            </label>
+          )}
           <div className="mt-3">
             <label className="block text-xs font-medium text-stone-600 mb-1">备注（可选）</label>
             <MarkdownTextarea
@@ -236,6 +260,7 @@ function TaskRow({
                   startDate: startDate || undefined,
                   endDate: endDate || undefined,
                   note: note || undefined,
+                  seasonalWateringAdjust: taskType === 'watering' ? seasonalWateringAdjust : undefined,
                 })
                 setEditing(false)
                 onAfterChange()
@@ -252,6 +277,7 @@ function TaskRow({
                 setStartDate(task.schedule.startDate ?? '')
                 setEndDate(task.schedule.endDate ?? '')
                 setNote(task.schedule.note ?? '')
+                setSeasonalWateringAdjust(task.schedule.seasonalWateringAdjust ?? false)
                 setEditing(false)
               }}
               className="rounded border border-stone-300 px-3 py-1.5 text-sm hover:bg-stone-100"
@@ -276,6 +302,7 @@ export function Tasks() {
   const [completeSubmitting, setCompleteSubmitting] = useState(false)
   const [completeError, setCompleteError] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [userLatitude, setUserLatitude] = useState<number | null>(null)
 
   /** 刚完成但服务端读仍可能滞后的行键，合并任意一次拉列表时都会先隐藏 */
   const pendingHideRowKeysRef = useRef<Set<string>>(new Set())
@@ -299,6 +326,7 @@ export function Tasks() {
         setCalendarTz(tz)
         setTzOffsetMinutes(getTimeZoneOffsetMinutes(tz))
         setTodayStr(toYmdInTimeZone(new Date(), tz))
+        setUserLatitude(s.latitude ?? null)
       })
       .catch((e) => setLoadError(getErrorMessage(e, '加载用户设置失败')))
   }, [])
@@ -394,6 +422,7 @@ export function Tasks() {
                 key={`${task.schedule.id}-${task.nextDue}`}
                 task={task}
                 todayStr={todayStr}
+                userLatitude={userLatitude}
                 onOpenComplete={() => {
                   setCompleteError(null)
                   setCompleteDate(todayStr)
@@ -419,6 +448,7 @@ export function Tasks() {
                 key={`${task.schedule.id}-${task.nextDue}`}
                 task={task}
                 todayStr={todayStr}
+                userLatitude={userLatitude}
                 onOpenComplete={() => {
                   setCompleteError(null)
                   setCompleteDate(todayStr)

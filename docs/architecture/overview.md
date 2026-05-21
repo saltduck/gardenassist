@@ -10,15 +10,23 @@ flowchart LR
   D1[(D1 SQLite)]
   R2[(R2 对象存储)]
   OpenAI[OpenAI API]
+  PlantId[Plant.id 规划]
+  Weather[Open-Meteo 等 规划]
+  Mail[邮件服务 规划]
 
   Browser --> Pages
   Browser --> Fn
   Fn --> D1
   Fn --> R2
   Fn --> OpenAI
+  Fn -.-> PlantId
+  Fn -.-> Weather
+  Fn -.-> Mail
 ```
 
-花园助手是**纯前端 SPA + Edge API** 架构：无自建 Node 长驻服务。用户通过邮箱登录后，所有业务数据经 Cookie 会话访问 D1；图片经 R2 存储。
+花园助手是**纯前端 SPA + Edge API** 架构：无自建 Node 长驻服务。用户通过邮箱登录后，业务数据经 Cookie 会话访问 D1；图片经 R2 存储。
+
+虚线表示 **v1.1 规划** 外部依赖，见 [`../requirements/planned-v1.1.md`](../requirements/planned-v1.1.md)。
 
 ## 技术选型
 
@@ -29,12 +37,15 @@ flowchart LR
 | API | Cloudflare Pages Functions | `functions/api/**` |
 | 数据库 | Cloudflare D1 | binding `DB` |
 | 文件 | Cloudflare R2 | binding `BUCKET`，路径 `{userId}/{uuid}.ext` |
-| AI | OpenAI Chat Completions | `gpt-4o-mini`，binding 环境变量 `OPENAI_API_KEY` |
+| AI | OpenAI Chat Completions | `gpt-4o-mini`，`OPENAI_API_KEY`；识别**规划**改 Plant.id |
+| 邮件 | **规划** Resend/SendGrid 等 | 找回密码 |
+| 天气 | **规划** Open-Meteo 等 | 日历自动填充 |
 
 ## 认证与数据隔离
 
-- 会话：Cookie `ga_session`（HttpOnly，30 天），见 `functions/api/auth/`。
-- `/api/data/*`、`/api/upload`、R2 资源读取均需有效会话。
+- 会话：Cookie `ga_session`（HttpOnly，30 天）；共享逻辑 [`_shared/session.ts`](../../functions/api/_shared/session.ts)，`auth/` / `data/` / `upload` / `ai/` 复用。
+- `/api/data/*`、`/api/upload`、`/api/ai/*` 须有效会话。
+- **`GET /api/assets/*` 当前无会话校验**（规划 v1.1 修复，见 product-spec §3.14.2）。
 - 植物及关联记录通过 `plants.user_id` 隔离；模板与天气按 `user_id` 存储。
 
 ## 前端页面与路由
@@ -42,6 +53,7 @@ flowchart LR
 | 路径 | 组件 | 认证 |
 |------|------|------|
 | `/login`, `/register` | Login, Register | 公开 |
+| `/forgot-password`, `/reset-password` | — | **规划** §3.14.1 |
 | `/` | Dashboard | 需登录 |
 | `/plants` | PlantList | 需登录 |
 | `/plants/new`, `/plants/:id/edit` | PlantForm | 需登录 |
@@ -49,19 +61,23 @@ flowchart LR
 | `/tasks` | Tasks | 需登录 |
 | `/calendar` | Calendar | 需登录 |
 | `/settings` | Settings | 需登录 |
+| `/garden-map` | — | **规划** 花园平面图 §3.15 |
 
-`App.tsx` 中 `RequireAuth` 包裹主布局；未登录重定向 `/login`。
+`App.tsx` 中 `RequireAuth` 包裹主布局；未登录重定向 `/login`。登录成功支持 `from` 回跳（`auth-redirect.ts`）。
 
 ## 后端模块划分
 
 | 路径 | 职责 |
 |------|------|
-| `functions/api/auth/[[path]].ts` | 注册、登录、退出、/me、改密 |
+| `functions/api/_shared/session.ts` | Cookie、CORS、会话查询、Set-Cookie |
+| `functions/api/_shared/interval-days.ts` | `normalizeIntervalDays` |
+| `functions/api/auth/[[path]].ts` | 注册、登录、退出、/me、改密（规划：找回密码） |
 | `functions/api/data/[[path]].ts` | 植物/记录/计划/待办/设置/天气 |
+| `functions/api/data/due-tasks.ts` | 待办构建（列表/计数/日历） |
 | `functions/api/data/schedule-algorithm.ts` | 待办日期纯函数（含 Vitest） |
-| `functions/api/ai/*.ts` | advice、identify、care-plan |
+| `functions/api/ai/*.ts` | advice、identify(OpenAI)、care-plan |
 | `functions/api/upload.ts` | 图片上传 |
-| `functions/api/assets/[[path]].ts` | R2 代理下载 |
+| `functions/api/assets/[[path]].ts` | R2 代理（规划：鉴权） |
 
 ## 前端数据访问层
 
@@ -79,7 +95,9 @@ flowchart LR
 - `[[d1_databases]]` → `DB`
 - `[[r2_buckets]]` → `BUCKET`
 
-生产环境另需在 Cloudflare Dashboard 配置 `OPENAI_API_KEY` 及 Pages 与 D1/R2 绑定（若未通过 wrangler 自动关联）。
+生产环境另需在 Cloudflare Dashboard 配置 `OPENAI_API_KEY` 及 Pages 与 D1/R2 绑定。
+
+**规划环境变量**：`PLANT_ID_API_KEY`、邮件服务相关 `MAIL_*` 等（见 [`planned-v1.1.md`](../requirements/planned-v1.1.md)）。
 
 ## 关键跨切面
 

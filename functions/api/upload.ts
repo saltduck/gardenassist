@@ -37,7 +37,9 @@ export const onRequestPost = async (context: Context) => {
     }
     const type = file.type || 'application/octet-stream'
     const ext = type === 'image/png' ? 'png' : type === 'image/webp' ? 'webp' : 'jpg'
-    const key = `${user.id}/${crypto.randomUUID()}.${ext}`
+    const kind = (form.get('kind') as string | null) ?? ''
+    const prefix = kind === 'garden-map' ? `${user.id}/garden-map` : user.id
+    const key = `${prefix}/${crypto.randomUUID()}.${ext}`
     await env.BUCKET.put(key, file.stream(), { httpMetadata: { contentType: type } })
     const url = `/api/assets/${key}`
     return Response.json({ url }, { status: 201, headers })
