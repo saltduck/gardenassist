@@ -7,7 +7,7 @@
 ```
 User
 ├── Session
-├── UserSettings (location, time_zone)
+├── UserSettings (location, suburb, latitude, longitude, time_zone)
 ├── Plant
 │   ├── GrowthRecord
 │   ├── CareLog
@@ -71,7 +71,9 @@ User
 
 ### UserSettings
 
-`location`（AI 与计划上下文）、`time_zone`（IANA，空则自动推断）。
+`location`（AI 与计划上下文）、`suburb`（郊区/街区）、`latitude` / `longitude`（天气、Plant.id 与季节规则坐标）、`time_zone`（IANA，空则自动推断）。
+
+保存设置时若用户未手动提供经纬度，服务端优先按 `suburb` 自动 geocode，失败再回退 `location`；解析成功后写入 `latitude` / `longitude`。
 
 ## 养护任务类型 taskType
 
@@ -93,7 +95,7 @@ User
 | 0001_initial | plants, growth_records, care_logs, care_schedules |
 | 0003–0004 | schedule start/end, note |
 | 0005–0006 | users, sessions, plants.user_id |
-| 0007, 0014 | user_settings, time_zone |
+| 0007, 0014, 0017 | user_settings, time_zone, suburb, latitude, longitude |
 | 0009–0011 | variety_key, templates, 取消同类型唯一约束 |
 | 0012 | daily_weather |
 | 0013 | care_skips |
@@ -121,13 +123,6 @@ User
 | 表（规划） | 字段 | 说明 |
 |------------|------|------|
 | `password_reset_tokens` | `id`, `user_id`, `token`, `expires_at`, `used_at` | 找回密码一次性 token |
-
-### UserSettings（扩展）
-
-| 字段（规划） | 说明 |
-|--------------|------|
-| `suburb` | 郊区/街区 |
-| `latitude`, `longitude` | 地理编码结果，供天气与 Plant.id |
 
 ### Plant（扩展）
 
@@ -164,9 +159,9 @@ User
 ```
 User
 ├── PasswordResetToken
-├── UserSettings (+ suburb, lat, lon)
+├── UserSettings
 ├── GardenMap
-├── Plant (+ suburb, map_x, map_y, external_plant_id)
+├── Plant (+ map_x, map_y, external_plant_id)
 ├── …（其余同现网）
 └── DailyWeather (+ source, fetched_at)
 ```

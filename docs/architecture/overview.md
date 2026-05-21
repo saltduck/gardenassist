@@ -11,7 +11,7 @@ flowchart LR
   R2[(R2 对象存储)]
   OpenAI[OpenAI API]
   PlantId[Plant.id 规划]
-  Weather[Open-Meteo 等 规划]
+  Weather[Open-Meteo 天气/地理编码]
   Mail[邮件服务 规划]
 
   Browser --> Pages
@@ -26,7 +26,7 @@ flowchart LR
 
 花园助手是**纯前端 SPA + Edge API** 架构：无自建 Node 长驻服务。用户通过邮箱登录后，业务数据经 Cookie 会话访问 D1；图片经 R2 存储。
 
-虚线表示 **v1.1 规划** 外部依赖，见 [`../requirements/planned-v1.1.md`](../requirements/planned-v1.1.md)。
+虚线表示外部服务调用，见 [`../requirements/planned-v1.1.md`](../requirements/planned-v1.1.md)。
 
 ## 技术选型
 
@@ -39,7 +39,7 @@ flowchart LR
 | 文件 | Cloudflare R2 | binding `BUCKET`，路径 `{userId}/{uuid}.ext` |
 | AI | OpenAI Chat Completions | `gpt-4o-mini`，`OPENAI_API_KEY`；识别**规划**改 Plant.id |
 | 邮件 | **规划** Resend/SendGrid 等 | 找回密码 |
-| 天气 | **规划** Open-Meteo 等 | 日历自动填充 |
+| 天气 / 地理编码 | Open-Meteo | 日历自动填充；settings suburb 自动解析经纬度 |
 
 ## 认证与数据隔离
 
@@ -70,6 +70,7 @@ flowchart LR
 | 路径 | 职责 |
 |------|------|
 | `functions/api/_shared/session.ts` | Cookie、CORS、会话查询、Set-Cookie |
+| `functions/api/_shared/geocode.ts` | Open-Meteo geocode；settings 与天气同步共享 |
 | `functions/api/_shared/interval-days.ts` | `normalizeIntervalDays` |
 | `functions/api/auth/[[path]].ts` | 注册、登录、退出、/me、改密（规划：找回密码） |
 | `functions/api/data/[[path]].ts` | 植物/记录/计划/待办/设置/天气 |

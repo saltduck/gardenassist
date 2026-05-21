@@ -74,10 +74,11 @@
 | GET | `/tasks/due/:date?tzOffsetMinutes=` | 指定日到期任务 |
 | GET | `/recent-care-logs?limit=` | 仪表盘最近养护 |
 | GET | `/care-logs/date/:date?tzOffsetMinutes=` | 指定日已完成养护（本地日） |
-| GET/PUT | `/settings` | `{ location, timeZone }`；**规划**增加 `suburb`, `latitude`, `longitude` |
+| GET | `/settings` | `{ location, timeZone, suburb, latitude, longitude }` |
+| PUT | `/settings` | 保存 `{ location, timeZone, suburb, latitude?, longitude? }`；若未手动指定坐标且 suburb/location 可解析，服务端自动 geocode 并返回最终坐标 |
 | GET | `/weather/range?from=&to=` | 日期范围天气 |
 | PUT/DELETE | `/weather/:date` | upsert / 删除；**规划** `source`, `fetchedAt` |
-| POST | `/weather/sync?from=&to=` | **规划** 从外部 API 拉取写入 §3.14.6 |
+| POST | `/weather/sync?from=&to=` | 从 Open-Meteo 拉取写入；坐标来源：settings 经纬度 → geocode(suburb) → geocode(location) |
 | GET/PUT | `/garden-map` | **规划** 花园平面图元数据 §3.14.7 |
 | PUT | `/plants/:id/map-position` | **规划** `{ mapX, mapY, gardenMapId? }` |
 

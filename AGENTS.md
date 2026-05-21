@@ -16,7 +16,7 @@
 | 文档 | 用途 |
 |------|------|
 | [`docs/requirements/product-spec.md`](docs/requirements/product-spec.md) | 完整业务需求、需求 ID、验收清单（**含 v1.1 规划 §3.14**） |
-| [`docs/requirements/planned-v1.1.md`](docs/requirements/planned-v1.1.md) | v1.1 七项规划速查（均未实现） |
+| [`docs/requirements/planned-v1.1.md`](docs/requirements/planned-v1.1.md) | v1.1 功能与验收补齐速查 |
 | [`docs/requirements/auth-flow.md`](docs/requirements/auth-flow.md) | 认证与会话（含规划中的找回密码） |
 | [`docs/architecture/overview.md`](docs/architecture/overview.md) | 技术栈、目录、部署、本地开发 |
 | [`docs/architecture/db-schema.md`](docs/architecture/db-schema.md) | 实体、表、variety_key / 共享计划 |
@@ -33,7 +33,7 @@
 | 认证 | 注册/登录/退出/改密/找回密码、`ga_session`、登录后 `from` 回跳 | — |
 | 识别 | `POST /api/ai/identify-plantid`（主）；`identify` OpenAI 回退 | — |
 | 图片 | `POST /api/upload`；`GET /api/assets/*` 须登录且 key 归属本人 | — |
-| 位置 | `location` + **suburb**、经纬度、列表筛选 | — |
+| 位置 | `location` + **suburb**、经纬度、列表筛选；保存 suburb 可自动 geocode 回填坐标 | — |
 | 天气 | 手填 + `POST /weather/sync`（Open-Meteo） | — |
 | 浇水计划 | `seasonalWateringAdjust` + 月份系数（`season-watering.ts`） | — |
 | 地图 | `/garden-map`、落点坐标 | — |
@@ -49,7 +49,7 @@
 - **会话**：`functions/api/_shared/session.ts`（auth / data / upload / ai 共用）
 - **持久化**：前端 `storage-api.ts` 等；**不使用 localStorage**
 
-**规划引入**：Plant.id、邮件服务、Open-Meteo（或同类）天气 API。
+**外部服务**：Plant.id、邮件服务、Open-Meteo 天气与地理编码 API。
 
 ## 目录要点
 
@@ -73,7 +73,7 @@ docs/tasks/         # TASK-011…017 ✅；TASK-019…027 验收差距
 
 1. **最小改动**：只改与任务相关的文件；不重构无关代码。
 2. **匹配现有风格**：`useEffect` + `storage-api`、Tailwind、中文 UI 文案。
-3. **业务规则**：时区（`user_settings.time_zone`、`tzOffsetMinutes`）；`variety_key` + 共享模板；归档植物不参与待办。
+3. **业务规则**：时区（`user_settings.time_zone`、`tzOffsetMinutes`）；`user_settings.suburb` 优先用于 geocode 回填经纬度；`variety_key` + 共享模板；归档植物不参与待办。
 4. **计划 ID**：`tpl:{uuid}` / `plant:{uuid}`。
 5. **测试**：改 `schedule-algorithm.ts` 或 `due-tasks.ts` 须 `npm test`；覆盖率 `npm run test:coverage`。
 6. **依赖**：只改本仓库源码。

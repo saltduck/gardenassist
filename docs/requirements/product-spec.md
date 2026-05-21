@@ -301,7 +301,7 @@
 |------|------|
 | location | 所在地文本（城市/区域），供 AI 建议与 care-plan 使用 |
 | suburb | ✅ 文本字段；🟡 预设/geocode 见 TASK-022 |
-| latitude / longitude | ✅ 手填；🟡 suburb/location 自动解析见 TASK-022 |
+| latitude / longitude | ✅ 可手填；保存设置时若 suburb/location 变化且未手动指定坐标，自动 geocode 并回填 |
 | timeZone | IANA 时区；空表示自动推断 |
 
 | 需求 ID | 描述 |
@@ -311,7 +311,7 @@
 | SET-03 | 影响：仪表盘今日待办数、待办页、日历月格与「今天」 |
 | SET-04 | 修改密码（见 AUTH-05） |
 | SET-05 | ✅ 设置页与 PlantForm 可填 suburb；列表可按 suburb 筛选 |
-| SET-06 | 🟡 与 location 联动、geocode 见 TASK-022 |
+| SET-06 | ✅ 保存 suburb 后自动查询并设置经纬度；解析成功后前端回填显示，解析失败展示错误 |
 
 ---
 
@@ -424,6 +424,7 @@
 | LOC-01 | `user_settings.suburb` 与 `plants.suburb`（可继承默认） | 文本 + 可选从预设列表选择 |
 | LOC-02 | 植物列表支持按 suburb 筛选/分组 | 与 PLANT-02 位置分组可并存 |
 | LOC-03 | suburb 用于天气坐标解析与季节规则 | 无 suburb 时回退到 location 城市级 |
+| LOC-04 | 设置页保存 suburb 后自动查询并写入 `user_settings.latitude/longitude` | suburb 变更时优先按新 suburb 解析；若用户手动输入经纬度则保留手动值；前端保存后展示服务端最终坐标 |
 
 #### 3.14.6 自动填入天气数据
 
@@ -686,7 +687,7 @@ User
 | `/api/assets` 仅本人可读 | ✅ | TASK-011 |
 | Plant.id 识别主路径 | ✅ | TASK-015、020 |
 | 季节浇水与待办一致 | ✅ | TASK-016、021 |
-| suburb 与天气/季节联动 | ✅ | TASK-013、022 |
+| suburb 与天气/季节联动；保存 suburb 自动设置经纬度 | ✅ | TASK-013、022、028 |
 | 天气自动同步、用户可覆盖 | ✅ | TASK-014、023 |
 | 花园平面图与落点 | ✅ | TASK-017、024 |
 | 文档与 spec 一致 | ✅ | TASK-027 |

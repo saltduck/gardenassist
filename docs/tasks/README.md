@@ -43,6 +43,12 @@
 | TASK-026 | [TASK-026-api-rate-limiting.md](./TASK-026-api-rate-limiting.md) | P2 | ✅ |
 | TASK-027 | [TASK-027-product-spec-acceptance-sync.md](./TASK-027-product-spec-acceptance-sync.md) | P3 | ✅ |
 
+## v1.1 后续增强（2026-05-21）
+
+| ID | 文件 | 优先级 | 状态 |
+|----|------|--------|------|
+| TASK-028 | [TASK-028-suburb-auto-geocode-settings.md](./TASK-028-suburb-auto-geocode-settings.md) | P1 | ✅ |
+
 **建议顺序**：`019` → `022` → `023` → `026`（可合并 019）；`020` ∥ `021`；`024`；`025`；最后 `027`（或每 PR 局部更新 spec）。
 
 ```mermaid
@@ -56,9 +62,12 @@ flowchart LR
   T024[TASK-024 花园图]
   T025[TASK-025 前端错误]
   T027[TASK-027 文档]
+  T028[TASK-028 suburb 自动坐标]
 
   T019 --> T026
   T022 --> T023
+  T022 --> T028
+  T028 --> T023
   T020 --> T027
   T021 --> T027
   T023 --> T027

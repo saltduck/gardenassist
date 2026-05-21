@@ -255,8 +255,8 @@ export async function getUserSettings(): Promise<AppSettings> {
   return await fetchJson<AppSettings>('/settings')
 }
 
-export async function setUserSettings(next: AppSettings): Promise<void> {
-  await fetchJson('/settings', { method: 'PUT', body: JSON.stringify(next) })
+export async function setUserSettings(next: AppSettings): Promise<AppSettings> {
+  return await fetchJson<AppSettings>('/settings', { method: 'PUT', body: JSON.stringify(next) })
 }
 
 export type { DueTask, TimelineItem }

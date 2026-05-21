@@ -4,6 +4,7 @@ import { consumeRateLimit } from '../_shared/rate-limit'
 import { fetchOpenMeteoDaily } from '../_shared/weather-sync'
 import { monthFromYmd } from '../_shared/season-watering'
 import { corsHeaders, getCurrentUser } from '../_shared/session'
+import { resolveSettingsCoordinates } from '../_shared/settings-geocode'
 import {
   buildDueTasks,
   countTodayDueTasks,
@@ -267,6 +268,11 @@ export const onRequest = async (context: Context) => {
       const location = typeof body.location === 'string' ? body.location : ''
       const timeZone = typeof body.timeZone === 'string' ? body.timeZone : ''
       const suburb = typeof body.suburb === 'string' ? body.suburb : ''
+      const { results: currentRows } = await env.DB
+        .prepare('SELECT location, suburb, latitude, longitude FROM user_settings WHERE user_id = ?')
+        .bind(user.id)
+        .all()
+      const current = (currentRows as any[])[0]
       const latitude =
         body.latitude === null || body.latitude === undefined
           ? null
@@ -279,23 +285,34 @@ export const onRequest = async (context: Context) => {
           : Number.isFinite(Number(body.longitude))
             ? Number(body.longitude)
             : null
-      let lat = latitude
-      let lon = longitude
-      if ((lat == null || lon == null) && (suburb.trim() || location.trim())) {
-        const g = await resolveWeatherCoords({ suburb, location, latitude: lat, longitude: lon })
-        if (g) {
-          lat = g.latitude
-          lon = g.longitude
-        }
+      const coord = await resolveSettingsCoordinates(
+        {
+          location,
+          suburb,
+          latitude,
+          longitude,
+          current: current
+            ? {
+                location: current.location,
+                suburb: current.suburb,
+                latitude: current.latitude != null ? Number(current.latitude) : null,
+                longitude: current.longitude != null ? Number(current.longitude) : null,
+              }
+            : null,
+        },
+        resolveWeatherCoords
+      )
+      if (coord.error) {
+        return Response.json({ error: coord.error }, { status: 400, headers: CORS })
       }
       const now = new Date().toISOString()
       await env.DB
         .prepare(
           'INSERT OR REPLACE INTO user_settings (user_id, location, time_zone, suburb, latitude, longitude, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
         )
-        .bind(user.id, location, timeZone, suburb, lat, lon, now)
+        .bind(user.id, location, timeZone, suburb, coord.latitude, coord.longitude, now)
         .run()
-      return Response.json({ location, timeZone, suburb, latitude: lat, longitude: lon }, { headers: CORS })
+      return Response.json({ location, timeZone, suburb, latitude: coord.latitude, longitude: coord.longitude }, { headers: CORS })
     }
 
     // POST /api/data/plants
@@ -850,7 +867,7 @@ export const onRequest = async (context: Context) => {
       }
       const gardenMapId = typeof body.gardenMapId === 'string' ? body.gardenMapId : null
       const now = new Date().toISOString()
-      const res = await env.DB
+      await env.DB
         .prepare(
           'UPDATE plants SET map_x = ?, map_y = ?, garden_map_id = ?, updated_at = ? WHERE id = ? AND user_id = ?'
         )

@@ -50,8 +50,6 @@ export function Settings() {
 
   useEffect(() => {
     let mounted = true
-    setLoading(true)
-    setError(null)
     getUserSettings()
       .then((s) => {
         if (!mounted) return
@@ -184,13 +182,18 @@ export function Settings() {
                   setError('经度须为有效数字')
                   return
                 }
-                await setUserSettings({
+                const next = await setUserSettings({
                   location: location.trim(),
                   timeZone: timeZone.trim(),
                   suburb: suburb.trim(),
                   latitude: lat,
                   longitude: lon,
                 })
+                setLocation(next.location || '')
+                setSuburb(next.suburb || '')
+                setLatitude(next.latitude != null ? String(next.latitude) : '')
+                setLongitude(next.longitude != null ? String(next.longitude) : '')
+                setTimeZone(next.timeZone || '')
                 setSaved(true)
                 setTimeout(() => setSaved(false), 1200)
               } catch (e) {
@@ -294,4 +297,3 @@ function PasswordForm() {
     </form>
   )
 }
-
