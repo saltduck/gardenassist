@@ -73,10 +73,12 @@ export const onRequestPost = async (context: Context) => {
     })
     const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }>; error?: { message?: string } }
     if (!res.ok) {
-      return Response.json(
-        { success: false, error: data.error?.message ?? res.statusText },
-        { status: res.status, headers: cors }
-      )
+      const upstreamError = data.error?.message ?? res.statusText
+      const error =
+        res.status === 429 || /quota|billing|api-errors/i.test(upstreamError)
+          ? 'OpenAI 识别服务当前不可用，请稍后再试或手动填写植物信息'
+          : upstreamError
+      return Response.json({ success: false, error }, { status: res.status, headers: cors })
     }
     const raw = data.choices?.[0]?.message?.content?.trim() ?? ''
     let name = ''

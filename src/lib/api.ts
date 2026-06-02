@@ -63,20 +63,6 @@ export async function identifyPlantBase64(
   return postJson<IdentifyResult>('/identify-plantid', { imageBase64, ...coords })
 }
 
-/** OpenAI 回退（可选） */
-export async function identifyPlantOpenAI(file: File): Promise<IdentifyResult> {
-  const form = new FormData()
-  form.append('image', file)
-  const res = await fetch(`${API_BASE}/identify`, {
-    method: 'POST',
-    credentials: 'include',
-    body: form,
-  })
-  const data = (await res.json()) as IdentifyResult
-  if (!res.ok) throw new ApiError(data.error ?? res.statusText, res.status)
-  return data
-}
-
 export interface CarePlanItem {
   taskType: string
   intervalDays: number

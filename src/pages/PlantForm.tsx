@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom'
 import { getPlantById, createPlant, updatePlant, getUserSettings } from '../lib/storage-api'
-import { identifyPlant, identifyPlantOpenAI } from '../lib/api'
+import { identifyPlant } from '../lib/api'
 import { uploadPhoto } from '../lib/upload-api'
 import { compressImage } from '../lib/compress-image'
 import { MarkdownTextarea } from '../components/MarkdownTextarea'
@@ -140,12 +140,7 @@ export function PlantForm() {
                   settings?.latitude != null && settings?.longitude != null
                     ? { latitude: settings.latitude, longitude: settings.longitude }
                     : undefined
-                let res
-                try {
-                  res = await identifyPlant(toSend, coords)
-                } catch {
-                  res = await identifyPlantOpenAI(toSend)
-                }
+                const res = await identifyPlant(toSend, coords)
                 const up = await uploadPhoto(toSend).then((r) => r.url).catch(() => '')
                 setIdentifyConfidence(
                   res.confidence != null ? Math.round(res.confidence * 100) : null

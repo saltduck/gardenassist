@@ -31,7 +31,7 @@
 | 类别 | 已实现（当前代码） | 仅 product-spec 规划、**勿当已上线** |
 |------|-------------------|-------------------------------------|
 | 认证 | 注册/登录/退出/改密/找回密码、`ga_session`、登录后 `from` 回跳 | — |
-| 识别 | `POST /api/ai/identify-plantid`（主）；`identify` OpenAI 回退 | — |
+| 识别 | `POST /api/ai/identify-plantid`（主）；`identify` 为 OpenAI 兼容端点，不自动回退 | — |
 | 图片 | `POST /api/upload`；`GET /api/assets/*` 须登录且 key 归属本人 | — |
 | 位置 | `location` + **suburb**、经纬度、列表筛选；保存 suburb 可自动 geocode 回填坐标 | — |
 | 天气 | 手填 + `POST /weather/sync`（Open-Meteo） | — |

@@ -126,18 +126,18 @@
 
 #### 3.2.3 拍照识别（添加/编辑页）
 
-**当前实现**：主通道 [Plant.id](https://plant.id/)（`POST /api/ai/identify-plantid`）；失败回退 OpenAI `identify`。
+**当前实现**：主通道 [Plant.id](https://plant.id/)（`POST /api/ai/identify-plantid`）；识别失败提示用户手动填写，前端不自动回退 OpenAI `identify`。
 
 | 需求 ID | 描述 |
 |---------|------|
 | PLANT-AI-01 | 「拍照识别」：上传 jpg/png/webp，最大 30MB；大于 1MB 时客户端压缩 |
-| PLANT-AI-02 | 调用 `identify-plantid`（主）或 `identify`（回退），回填名称、品种 |
+| PLANT-AI-02 | 调用 `identify-plantid`（主），成功后回填名称、品种；`identify` 仅作兼容端点 |
 | PLANT-AI-03 | 识别同时尝试上传照片至 R2，成功则写入 `photoUrl` |
 | PLANT-AI-04 | 识别失败展示错误信息，不阻断手动填写 |
 | PLANT-AI-05 | ✅ 识别主通道 Plant.id；Key 仅存服务端 |
 | PLANT-AI-06 | 🟡 映射 name/variety；置信度与 `external_plant_id` 入库见 TASK-020 |
 | PLANT-AI-07 | ✅ 可带 settings 经纬度 |
-| PLANT-AI-08 | ✅ 失败回退 OpenAI 或手填 |
+| PLANT-AI-08 | ✅ 识别失败提示手动填写；不自动回退 OpenAI |
 
 #### 3.2.4 照片上传
 
