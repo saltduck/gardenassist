@@ -10,7 +10,7 @@
 | 符号 | 含义 |
 |------|------|
 | `today` | 用户时区下的当前日期 YYYY-MM-DD |
-| `last` | 该 `plantId + taskType` 下，CareLog 与 CareSkip 转本地日后的**最晚动作日**；无则为 null |
+| `last` | 匹配该计划的 CareLog，以及同 `plantId + taskType` 的 CareSkip，转本地日后的**最晚动作日**；无则为 null。带 `schedule_id` 的记录只匹配该计划；空 `schedule_id` 仍按 `task_type` |
 | `interval` | `intervalDays`，0 表示一次性 |
 | `startDate`, `endDate` | 计划有效窗口（可选） |
 
@@ -61,7 +61,7 @@
 3. `shouldIncludeInRange` 过滤
 4. 按 `nextDue` 排序返回
 
-**跳过与完成**：同一 `plantId|taskType` 键上，取 `done_at` / `skipped_at` 时间戳最大者转本地日作为 `last`。
+**跳过与完成**：带 `schedule_id` 的完成记录只推进对应计划；无 `schedule_id` 的完成记录与全部跳过记录仍按 `plantId + taskType` 计入。取匹配记录里时间戳最大者转本地日作为 `last`。
 
 ## 前端时区
 

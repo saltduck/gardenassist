@@ -1,9 +1,11 @@
 import { effectiveWateringIntervalDays, monthFromYmd } from '../_shared/season-watering'
 import {
   addDays,
+  careLogMatchesSchedule,
   computeDueFromLast,
   computeNextDue,
   inScheduleWindow,
+  schedulePublicId,
   shouldIncludeInRange,
   type DueRange,
 } from './schedule-algorithm'
@@ -43,7 +45,7 @@ export interface BuildDueTasksParams {
   toSchedule: (row: unknown) => Record<string, unknown>
   templates: Array<{ variety_key?: string | null; plant_id?: string; scope?: string; [key: string]: unknown }>
   plantSchedules: Array<{ plant_id: string; scope?: string; task_type: string; interval_days: number; start_date?: string | null; end_date?: string | null; [key: string]: unknown }>
-  logs: Array<{ plant_id: string; task_type: string; done_at: string }>
+  logs: Array<{ plant_id: string; task_type: string; done_at: string; schedule_id?: string | null }>
   skips: Array<{ plant_id: string; task_type: string; skipped_at: string }>
   tzOffsetMinutes: number
   isoToLocalDate: (iso: string, tzOffsetMinutes: number) => string
@@ -59,22 +61,27 @@ function buildLastActionMap(
   skips: BuildDueTasksParams['skips'],
   tzOffsetMinutes: number,
   isoToLocalDate: BuildDueTasksParams['isoToLocalDate']
-): (plantId: string, taskType: string) => string | null {
-  const actionLocalByKey: Record<string, string | null> = {}
-  const actionMsByKey: Record<string, number> = {}
-  const keyOf = (plantId: string, taskType: string) => `${plantId}|${taskType}`
-  const setIfLater = (plantId: string, taskType: string, iso: string) => {
-    const ms = Date.parse(iso)
-    if (!Number.isFinite(ms)) return
-    const k = keyOf(plantId, taskType)
-    if (actionMsByKey[k] == null || ms > actionMsByKey[k]) {
-      actionMsByKey[k] = ms
-      actionLocalByKey[k] = isoToLocalDate(iso, tzOffsetMinutes)
+): (plantId: string, scheduleId: string, taskType: string) => string | null {
+  return (plantId, scheduleId, taskType) => {
+    let bestMs = -Infinity
+    let bestIso: string | null = null
+    const consider = (iso: string) => {
+      const ms = Date.parse(iso)
+      if (!Number.isFinite(ms) || ms <= bestMs) return
+      bestMs = ms
+      bestIso = iso
     }
+    for (const l of logs) {
+      if (l.plant_id !== plantId) continue
+      if (!careLogMatchesSchedule(l, { id: scheduleId, task_type: taskType })) continue
+      consider(l.done_at)
+    }
+    for (const s of skips) {
+      if (s.plant_id !== plantId || s.task_type !== taskType) continue
+      consider(s.skipped_at)
+    }
+    return bestIso ? isoToLocalDate(bestIso, tzOffsetMinutes) : null
   }
-  for (const l of logs) setIfLater(l.plant_id, l.task_type, l.done_at)
-  for (const s of skips) setIfLater(s.plant_id, s.task_type, s.skipped_at)
-  return (plantId, taskType) => actionLocalByKey[keyOf(plantId, taskType)] ?? null
 }
 
 function indexTemplatesByVarietyKey(templates: BuildDueTasksParams['templates']) {
@@ -132,7 +139,8 @@ export function buildDueTasks(params: BuildDueTasksParams): DueTaskRow[] {
     ]
 
     for (const t of mergedSchedules) {
-      const last = lastDone(plantId, t.task_type)
+      const scheduleId = schedulePublicId(t.scope === 'plant' ? 'plant' : 'shared', String(t.id ?? ''))
+      const last = lastDone(plantId, scheduleId, String(t.task_type ?? ''))
       const startDate = t.start_date ?? null
       const endDate = t.end_date ?? null
       const intervalDays = effectiveWateringIntervalDays(

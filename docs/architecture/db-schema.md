@@ -48,6 +48,7 @@ User
 
 | 字段 | 说明 |
 |------|------|
+| name | 计划名称；空则 UI 回退类型标签 |
 | taskType | 见下表 |
 | intervalDays | 间隔天；**0 = 一次性** |
 | startDate, endDate | 可选 YYYY-MM-DD 窗口 |
@@ -100,6 +101,7 @@ User
 | 0012 | daily_weather |
 | 0013 | care_skips |
 | 0015 | archived_at, archive_reason |
+| 0022 | care_schedules / care_schedule_templates.name；care_logs.name、schedule_id |
 
 新增 schema 请添加 `migrations/00xx_描述.sql`，勿修改已发布迁移。
 

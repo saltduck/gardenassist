@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getAllPlants, getTodayDueCount, getRecentCareLogs, getUserSettings } from '../lib/storage-api'
 import type { Plant } from '../types/plant'
-import { CARE_TASK_TYPES } from '../types/plant'
+import { careLogDisplayName } from '../types/plant'
 import { getTimeZoneOffsetMinutes, resolveCalendarTimeZone } from '../lib/calendar-timezone'
 import { getErrorMessage } from '../lib/api-error'
 
@@ -17,7 +17,7 @@ export function Dashboard() {
   const [plants, setPlants] = useState<Plant[]>([])
   const [todayDue, setTodayDue] = useState(0)
   const [calendarTz, setCalendarTz] = useState('')
-  const [recentLogs, setRecentLogs] = useState<Array<{ log: { id: string; taskType: string; doneAt: string }; plant: Plant | undefined }>>([])
+  const [recentLogs, setRecentLogs] = useState<Array<{ log: { id: string; taskType: string; doneAt: string; name?: string }; plant: Plant | undefined }>>([])
   const [loadError, setLoadError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -122,7 +122,7 @@ export function Dashboard() {
                   >
                     <span className="font-medium text-stone-800">{plant?.name ?? '未知植物'}</span>
                     <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">
-                      {CARE_TASK_TYPES.find((t) => t.value === log.taskType)?.label ?? log.taskType}
+                      {careLogDisplayName(log)}
                     </span>
                     <span className="ml-2 text-sm text-stone-500">{formatDateOnly(log.doneAt)}</span>
                   </Link>

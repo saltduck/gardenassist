@@ -53,6 +53,22 @@ export function computeDueFromLast(
   return addDays(lastDoneLocal, interval)
 }
 
+export function schedulePublicId(scope: string | undefined, rawId: string): string {
+  const id = String(rawId ?? '')
+  if (id.startsWith('tpl:') || id.startsWith('plant:')) return id
+  return `${scope === 'plant' ? 'plant' : 'tpl'}:${id}`
+}
+
+/** 有 schedule_id 时只匹配该计划；否则按 task_type（手动记录与旧数据）。 */
+export function careLogMatchesSchedule(
+  log: { task_type?: string | null; schedule_id?: string | null },
+  schedule: { id: string; task_type: string }
+): boolean {
+  const sid = (log.schedule_id ?? '').toString().trim()
+  if (sid) return sid === schedule.id
+  return (log.task_type ?? '') === schedule.task_type
+}
+
 export function shouldIncludeInRange(
   range: DueRange,
   today: string,

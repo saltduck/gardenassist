@@ -74,7 +74,7 @@ docs/tasks/         # TASK-011…017 ✅；TASK-019…027 验收差距
 1. **最小改动**：只改与任务相关的文件；不重构无关代码。
 2. **匹配现有风格**：`useEffect` + `storage-api`、Tailwind、中文 UI 文案。
 3. **业务规则**：时区（`user_settings.time_zone`、`tzOffsetMinutes`）；`user_settings.suburb` 优先用于 geocode 回填经纬度；`variety_key` + 共享模板；归档植物不参与待办。
-4. **计划 ID**：`tpl:{uuid}` / `plant:{uuid}`。
+4. **计划 ID**：`tpl:{uuid}` / `plant:{uuid}`。养护计划有 `name`；完成待办时把名称和计划 id 写入养护记录。展示优先名称，空名称回退类型标签。带 `schedule_id` 的记录只推进该计划。
 5. **测试**：改 `schedule-algorithm.ts` 或 `due-tasks.ts` 须 `npm test`；覆盖率 `npm run test:coverage`。
 6. **依赖**：只改本仓库源码。
 7. **错误**：数据 API 用 `ApiError`；页面加载失败应展示错误（见 Dashboard/Tasks/PlantDetail）；勿静默吞掉 `getUserSettings` 失败。

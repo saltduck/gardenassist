@@ -78,11 +78,41 @@ function toGrowth(row: any) {
     createdAt: row.created_at,
   }
 }
+const TASK_TYPE_LABELS: Record<string, string> = {
+  watering: '浇水',
+  fertilizing: '施肥',
+  pruning: '修剪',
+  repotting: '换盆',
+  pest_control: '除虫',
+  mulch: '铺盖',
+  mowing: '割草',
+  other: '其他',
+}
+
+function careTaskTypeLabel(taskType: string): string {
+  return TASK_TYPE_LABELS[taskType] ?? taskType
+}
+
+function scheduleNameFrom(bodyName: unknown, taskType: string): string {
+  const raw = typeof bodyName === 'string' ? bodyName.trim() : ''
+  return (raw || careTaskTypeLabel(taskType)).slice(0, 80)
+}
+
+function optionalText(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim().slice(0, 80)
+  return trimmed || null
+}
+
 function toCareLog(row: any) {
+  const name = typeof row.name === 'string' ? row.name.trim() : ''
+  const scheduleId = typeof row.schedule_id === 'string' ? row.schedule_id.trim() : ''
   return {
     id: row.id,
     plantId: row.plant_id,
     taskType: row.task_type,
+    name: name || undefined,
+    scheduleId: scheduleId || undefined,
     doneAt: row.done_at,
     notes: row.notes ?? undefined,
     createdAt: row.created_at,
@@ -107,6 +137,7 @@ function toSchedule(row: any) {
     id,
     plantId: row.plant_id,
     scope,
+    name: typeof row.name === 'string' && row.name.trim() ? row.name.trim() : careTaskTypeLabel(row.task_type),
     taskType: row.task_type,
     intervalDays: row.interval_days,
     startDate: row.start_date ?? undefined,
@@ -470,9 +501,18 @@ export const onRequest = async (context: Context) => {
       const rid = crypto.randomUUID()
       const now = new Date().toISOString()
       await env.DB.prepare(
-        'INSERT INTO care_logs (id, plant_id, task_type, done_at, notes, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+        'INSERT INTO care_logs (id, plant_id, task_type, name, schedule_id, done_at, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
       )
-        .bind(rid, id, body.taskType ?? 'other', body.doneAt ?? now, body.notes ?? null, now)
+        .bind(
+          rid,
+          id,
+          body.taskType ?? 'other',
+          optionalText(body.name),
+          optionalText(body.scheduleId),
+          body.doneAt ?? now,
+          body.notes ?? null,
+          now
+        )
         .run()
       const { results } = await env.DB.prepare('SELECT * FROM care_logs WHERE id = ?').bind(rid).all()
       return Response.json(toCareLog(results[0]), { status: 201, headers: CORS })
@@ -537,12 +577,13 @@ export const onRequest = async (context: Context) => {
         const sid = crypto.randomUUID()
         await env.DB
           .prepare(
-            'INSERT INTO care_schedules (id, plant_id, task_type, interval_days, start_date, end_date, note, seasonal_watering_adjust, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO care_schedules (id, plant_id, task_type, name, interval_days, start_date, end_date, note, seasonal_watering_adjust, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
           )
           .bind(
             sid,
             id,
             body.taskType ?? 'other',
+            scheduleNameFrom(body.name, body.taskType ?? 'other'),
             body.intervalDays ?? 7,
             body.startDate ?? null,
             body.endDate ?? null,
@@ -558,13 +599,14 @@ export const onRequest = async (context: Context) => {
       const tid = crypto.randomUUID()
       await env.DB
         .prepare(
-          'INSERT INTO care_schedule_templates (id, user_id, variety_key, task_type, interval_days, start_date, end_date, note, seasonal_watering_adjust, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          'INSERT INTO care_schedule_templates (id, user_id, variety_key, task_type, name, interval_days, start_date, end_date, note, seasonal_watering_adjust, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         )
         .bind(
           tid,
           user.id,
           vkey,
           body.taskType ?? 'other',
+          scheduleNameFrom(body.name, body.taskType ?? 'other'),
           body.intervalDays ?? 7,
           body.startDate ?? null,
           body.endDate ?? null,
@@ -629,8 +671,13 @@ export const onRequest = async (context: Context) => {
       const nextTaskType = body.taskType ?? current.task_type
       const nextDoneAt = body.doneAt ?? current.done_at
       const nextNotes = body.notes !== undefined ? body.notes : current.notes
-      await env.DB.prepare('UPDATE care_logs SET task_type = ?, done_at = ?, notes = ? WHERE id = ?')
-        .bind(nextTaskType, nextDoneAt, nextNotes ?? null, cid)
+      const nextName = body.name !== undefined ? optionalText(body.name) : (current.name ?? null)
+      const nextScheduleId =
+        body.scheduleId !== undefined ? optionalText(body.scheduleId) : (current.schedule_id ?? null)
+      await env.DB.prepare(
+        'UPDATE care_logs SET task_type = ?, name = ?, schedule_id = ?, done_at = ?, notes = ? WHERE id = ?'
+      )
+        .bind(nextTaskType, nextName, nextScheduleId, nextDoneAt, nextNotes ?? null, cid)
         .run()
       const after = await env.DB.prepare('SELECT * FROM care_logs WHERE id = ?').bind(cid).all()
       return Response.json(toCareLog(after.results[0]), { headers: CORS })
@@ -672,6 +719,10 @@ export const onRequest = async (context: Context) => {
         if (!results.length) return Response.json({ error: 'Not found' }, { status: 404, headers: CORS })
         const current = results[0] as any
         const nextTaskType = body.taskType ?? current.task_type
+        const nextName =
+          body.name !== undefined
+            ? scheduleNameFrom(body.name, nextTaskType)
+            : scheduleNameFrom(current.name, nextTaskType)
         const nextIntervalDays = body.intervalDays ?? current.interval_days
         const nextStartDate = body.startDate !== undefined ? body.startDate : current.start_date
         const nextEndDate = body.endDate !== undefined ? body.endDate : current.end_date
@@ -684,10 +735,11 @@ export const onRequest = async (context: Context) => {
             : current.seasonal_watering_adjust
         await env.DB
           .prepare(
-            'UPDATE care_schedules SET task_type = ?, interval_days = ?, start_date = ?, end_date = ?, note = ?, seasonal_watering_adjust = ? WHERE id = ?'
+            'UPDATE care_schedules SET task_type = ?, name = ?, interval_days = ?, start_date = ?, end_date = ?, note = ?, seasonal_watering_adjust = ? WHERE id = ?'
           )
           .bind(
             nextTaskType,
+            nextName,
             nextIntervalDays,
             nextStartDate ?? null,
             nextEndDate ?? null,
@@ -707,6 +759,10 @@ export const onRequest = async (context: Context) => {
       if (!results.length) return Response.json({ error: 'Not found' }, { status: 404, headers: CORS })
       const current = results[0] as any
       const nextTaskType = body.taskType ?? current.task_type
+      const nextName =
+        body.name !== undefined
+          ? scheduleNameFrom(body.name, nextTaskType)
+          : scheduleNameFrom(current.name, nextTaskType)
       const nextIntervalDays = body.intervalDays ?? current.interval_days
       const nextStartDate = body.startDate !== undefined ? body.startDate : current.start_date
       const nextEndDate = body.endDate !== undefined ? body.endDate : current.end_date
@@ -719,10 +775,11 @@ export const onRequest = async (context: Context) => {
           : current.seasonal_watering_adjust
       await env.DB
         .prepare(
-          'UPDATE care_schedule_templates SET task_type = ?, interval_days = ?, start_date = ?, end_date = ?, note = ?, seasonal_watering_adjust = ? WHERE id = ?'
+          'UPDATE care_schedule_templates SET task_type = ?, name = ?, interval_days = ?, start_date = ?, end_date = ?, note = ?, seasonal_watering_adjust = ? WHERE id = ?'
         )
         .bind(
           nextTaskType,
+          nextName,
           nextIntervalDays,
           nextStartDate ?? null,
           nextEndDate ?? null,

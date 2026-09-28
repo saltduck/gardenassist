@@ -173,15 +173,17 @@
 | 字段 | 说明 |
 |------|------|
 | plantId | 所属植物 |
-| taskType | 养护类型（见 3.6） |
+| taskType | 养护类型（见 3.6）；分类与手动记录展示用 |
+| name | 可选。从养护计划完成时写入的名称快照 |
+| scheduleId | 可选。来源计划的公开 id（`tpl:` / `plant:`） |
 | doneAt | 完成时间（ISO，可精确到时分） |
 | notes | 备注（Markdown） |
 
 | 需求 ID | 描述 |
 |---------|------|
 | CARE-01 | 详情页手动添加养护记录 |
-| CARE-02 | 待办页「完成」时写入 CareLog，`doneAt` 为用户选择的完成日期（中午 UTC 锚点） |
-| CARE-03 | 支持编辑类型、完成时间、备注；支持删除 |
+| CARE-02 | 待办页「完成」时写入 CareLog，`doneAt` 为用户选择的完成日期（中午 UTC 锚点），并写入当时的计划名称与 `scheduleId` |
+| CARE-03 | 支持编辑类型、完成时间、备注；支持删除。有名称的记录编辑名称，不改回类型标签 |
 | CARE-04 | 参与时间线；日历「已完成」列表按完成日期的本地日展示 |
 
 ---
@@ -220,7 +222,8 @@
 
 | 字段 | 说明 |
 |------|------|
-| taskType | 任务类型 |
+| name | 计划名称。空则展示任务类型中文标签。AI 生成时初始名称为类型标签，用户可改 |
+| taskType | 任务类型（分类仍保留） |
 | intervalDays | 间隔天数；**0 表示一次性任务** |
 | startDate | 可选，YYYY-MM-DD；未开始则不生效 |
 | endDate | 可选；超过则不再产生待办 |
@@ -240,7 +243,7 @@
 | 需求 ID | 描述 |
 |---------|------|
 | SCHED-01 | 详情页添加、编辑、删除养护计划 |
-| SCHED-02 | 待办页可内联编辑计划（类型、间隔、起止日期、备注），不改变 scope |
+| SCHED-02 | 待办页可内联编辑计划（名称、类型、间隔、起止日期、备注），不改变 scope |
 | SCHED-03 | 待办页可删除计划（含确认文案） |
 | SCHED-04 | 🟡 新建计划可配置季节浇水；内联编辑见 TASK-021 |
 | SCHED-05 | ✅ 南/北半球 + 月份系数（`season-watering.ts`） |
@@ -250,7 +253,11 @@
 
 设 `today` 为用户时区下的当前日期（由 `tzOffsetMinutes` 或 IANA 时区解析）。
 
-**最近一次动作日期 `last`**：该 `plantId + taskType` 下，所有 CareLog.doneAt 与 CareSkip.skippedAt 转为本地日后，取时间最晚者对应的本地日。
+**最近一次动作日期 `last`**：对该计划，取「匹配的 CareLog」与「同 `plantId + taskType` 的 CareSkip」中时间最晚者的本地日。
+
+- CareLog 带非空 `scheduleId` 时，只计入该计划，不推进同类型的其它计划。
+- CareLog 的 `scheduleId` 为空（手动记录或旧数据）时，仍按 `taskType` 计入。
+- CareSkip 没有计划 id，仍按 `taskType` 计入。
 
 | 场景 | 规则 |
 |------|------|

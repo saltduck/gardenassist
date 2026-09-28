@@ -38,6 +38,20 @@ export const CARE_TASK_TYPES = [
 
 export type CareTaskType = (typeof CARE_TASK_TYPES)[number]['value']
 
+export function careTaskTypeLabel(taskType: string): string {
+  return CARE_TASK_TYPES.find((t) => t.value === taskType)?.label ?? taskType
+}
+
+export function scheduleDisplayName(schedule: { name?: string | null; taskType: string }): string {
+  const name = (schedule.name ?? '').trim()
+  return name || careTaskTypeLabel(schedule.taskType)
+}
+
+export function careLogDisplayName(log: { name?: string | null; taskType: string }): string {
+  const name = (log.name ?? '').trim()
+  return name || careTaskTypeLabel(log.taskType)
+}
+
 export type ArchiveReason = NonNullable<Plant['archiveReason']>
 
 export function archiveReasonLabel(reason?: Plant['archiveReason']): string {
@@ -70,6 +84,10 @@ export interface CareLog {
   id: string
   plantId: string
   taskType: CareTaskType
+  /** 完成计划时的名称快照；手动记录可空，展示时回退类型标签 */
+  name?: string
+  /** 来源计划公开 id（tpl: / plant:）；手动记录可空 */
+  scheduleId?: string
   doneAt: string // ISO
   notes?: string
   createdAt: string
@@ -91,6 +109,8 @@ export interface CareSchedule {
   plantId: string
   /** shared=同品种共享；plant=仅当前植株 */
   scope?: 'shared' | 'plant'
+  /** 计划名称；空则展示类型标签 */
+  name?: string
   taskType: CareTaskType
   intervalDays: number
   /** 可选：开始日期（YYYY-MM-DD）。为空则立即生效 */

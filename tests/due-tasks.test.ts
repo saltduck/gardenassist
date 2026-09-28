@@ -170,6 +170,29 @@ describe('due tasks build', () => {
     expect(list[0]?.plant.id).toBe('p1')
   })
 
+  it('named log advances only the matching schedule', () => {
+    const today = '2026-03-15'
+    const list = buildDueTasks({
+      plantRows: [makePlantRow('p1', 'n', '绿萝', '绿萝')],
+      toPlant,
+      toSchedule,
+      templates: [],
+      plantSchedules: [
+        { id: 'a', plant_id: 'p1', task_type: 'watering', interval_days: 7, scope: 'plant' },
+        { id: 'b', plant_id: 'p1', task_type: 'watering', interval_days: 7, scope: 'plant' },
+      ],
+      logs: [{ plant_id: 'p1', task_type: 'watering', schedule_id: 'plant:a', done_at: '2026-03-14T12:00:00.000Z' }],
+      skips: [],
+      tzOffsetMinutes: 0,
+      isoToLocalDate,
+      today,
+      mode: { kind: 'range', range: 'today' },
+    })
+    const dueIds = list.map((row) => String(row.schedule.id))
+    expect(dueIds).toContain('b')
+    expect(dueIds).not.toContain('a')
+  })
+
   it('skip later than log advances last action', () => {
     const today = '2026-03-15'
     const list = buildDueTasks({

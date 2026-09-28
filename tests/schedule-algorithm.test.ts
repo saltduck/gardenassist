@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
   addDays,
+  careLogMatchesSchedule,
   computeDueFromLast,
   computeNextDue,
   inScheduleWindow,
+  schedulePublicId,
   shouldIncludeInRange,
 } from '../functions/api/data/schedule-algorithm'
 
@@ -88,5 +90,24 @@ describe('schedule algorithm', () => {
 
   it('computeDueFromLast respects startDate after last done', () => {
     expect(computeDueFromLast('2026-03-15', '2026-03-01', 7, '2026-03-20')).toBe('2026-03-20')
+  })
+
+  it('schedulePublicId prefixes raw ids and keeps existing prefixes', () => {
+    expect(schedulePublicId('shared', 'abc')).toBe('tpl:abc')
+    expect(schedulePublicId('plant', 'abc')).toBe('plant:abc')
+    expect(schedulePublicId('plant', 'tpl:abc')).toBe('tpl:abc')
+  })
+
+  it('care log with schedule id matches only that plan', () => {
+    const named = { task_type: 'watering', schedule_id: 'plant:a' }
+    expect(careLogMatchesSchedule(named, { id: 'plant:a', task_type: 'watering' })).toBe(true)
+    expect(careLogMatchesSchedule(named, { id: 'plant:b', task_type: 'watering' })).toBe(false)
+    expect(careLogMatchesSchedule({ task_type: 'watering', schedule_id: '  ' }, { id: 'plant:b', task_type: 'watering' })).toBe(true)
+    expect(careLogMatchesSchedule({ task_type: 'watering', schedule_id: null }, { id: 'tpl:1', task_type: 'fertilizing' })).toBe(false)
+  })
+
+  it('interval 0 is one-shot after a last action', () => {
+    expect(computeNextDue('2026-03-15', '2026-03-01', 0)).toBeNull()
+    expect(computeDueFromLast('2026-03-15', null, 0)).toBe('2026-03-15')
   })
 })

@@ -61,7 +61,7 @@
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET/POST | `/plants/:id/schedules` | POST body 含 `scope`, `taskType`, `intervalDays`, … |
+| GET/POST | `/plants/:id/schedules` | POST body 含 `scope`, `name`, `taskType`, `intervalDays`, …。`name` 空则存类型中文标签 |
 | PUT/DELETE | `/schedules/:id` | id 为 `tpl:...` 或 `plant:...` |
 
 ### 其它
