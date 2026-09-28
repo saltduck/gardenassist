@@ -50,3 +50,23 @@ export function shouldIncludeInRange(
   if (range === 'today') return nextDue <= today
   return nextDue > today && nextDue <= endOfWeek
 }
+
+/** 对外计划 id，与 toSchedule 的 plant:/tpl: 前缀一致 */
+export function schedulePublicId(scope: string, rawId: string): string {
+  const id = String(rawId ?? '')
+  if (id.startsWith('tpl:') || id.startsWith('plant:')) return id
+  return `${scope === 'plant' ? 'plant' : 'tpl'}:${id}`
+}
+
+/**
+ * 有来源计划 id 的记录只属于那一条计划。
+ * 没有来源 id 的旧记录仍按任务类型匹配。
+ */
+export function careLogMatchesSchedule(
+  log: { task_type?: string | null; schedule_id?: string | null },
+  schedule: { id: string; task_type: string }
+): boolean {
+  const scheduleId = typeof log.schedule_id === 'string' ? log.schedule_id.trim() : ''
+  if (scheduleId) return scheduleId === schedule.id
+  return (log.task_type ?? '') === schedule.task_type
+}

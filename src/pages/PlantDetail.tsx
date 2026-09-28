@@ -19,7 +19,7 @@ import {
 import { getAdvice, getCarePlan } from '../lib/api'
 import type { CarePlanItem } from '../lib/api'
 import type { TimelineItem } from '../types/data'
-import { CARE_TASK_TYPES } from '../types/plant'
+import { CARE_TASK_TYPES, careLogDisplayName, careTaskTypeLabel, scheduleDisplayName } from '../types/plant'
 import type { Plant, GrowthRecord, CareLog, CareSchedule } from '../types/plant'
 import type { CareTaskType } from '../types/plant'
 import { useEffect, useRef, useState } from 'react'
@@ -66,10 +66,12 @@ export function PlantDetail() {
   const [showScheduleForm, setShowScheduleForm] = useState(false)
   const [editingCareLogId, setEditingCareLogId] = useState<string | null>(null)
   const [editingCareLogTaskType, setEditingCareLogTaskType] = useState<CareLog['taskType']>('watering')
+  const [editingCareLogName, setEditingCareLogName] = useState('')
   const [editingCareLogDoneAt, setEditingCareLogDoneAt] = useState('')
   const [editingCareLogNotes, setEditingCareLogNotes] = useState('')
   const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null)
   const [editingScheduleTaskType, setEditingScheduleTaskType] = useState<CareSchedule['taskType']>('watering')
+  const [editingScheduleName, setEditingScheduleName] = useState('')
   const [editingScheduleIntervalDays, setEditingScheduleIntervalDays] = useState('7')
   const [editingScheduleStartDate, setEditingScheduleStartDate] = useState('')
   const [editingScheduleEndDate, setEditingScheduleEndDate] = useState('')
@@ -325,7 +327,13 @@ export function PlantDetail() {
                             if (!carePlanSelected.has(i)) continue
                             const item = carePlanItems[i]
                             const taskType = validTypes.includes(item.taskType as CareTaskType) ? (item.taskType as CareTaskType) : 'other'
-                            await addCareSchedule({ plantId: plant.id, taskType, intervalDays: item.intervalDays, note: item.note })
+                            await addCareSchedule({
+                              plantId: plant.id,
+                              taskType,
+                              name: careTaskTypeLabel(taskType),
+                              intervalDays: item.intervalDays,
+                              note: item.note,
+                            })
                           }
                           setCarePlanItems(null)
                           setCarePlanSelected(new Set())
@@ -390,7 +398,7 @@ export function PlantDetail() {
                 ) : (
                   <>
                     <span className="rounded bg-amber-100 px-2 py-0.5 text-amber-700">
-                      {CARE_TASK_TYPES.find((t) => t.value === item.data.taskType)?.label ?? item.data.taskType}
+                      {careLogDisplayName(item.data)}
                     </span>
                     {item.data.notes && (
                       <div className="text-stone-600 mt-1">
@@ -444,12 +452,31 @@ export function PlantDetail() {
                       </span>
                       <span className="text-xs text-stone-500">编辑仅修改周期与备注，不改变计划范围</span>
                     </div>
+                    <div className="mb-3">
+                      <label className="block text-xs font-medium text-stone-600 mb-1">名称</label>
+                      <input
+                        type="text"
+                        value={editingScheduleName}
+                        onChange={(e) => setEditingScheduleName(e.target.value)}
+                        maxLength={80}
+                        className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
+                        placeholder="例如：夏季浇水"
+                      />
+                    </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className="block text-xs font-medium text-stone-600 mb-1">类型</label>
                         <select
                           value={editingScheduleTaskType}
-                          onChange={(e) => setEditingScheduleTaskType(e.target.value as CareSchedule['taskType'])}
+                          onChange={(e) => {
+                            const next = e.target.value as CareSchedule['taskType']
+                            setEditingScheduleName((current) => {
+                              const prevLabel = careTaskTypeLabel(editingScheduleTaskType)
+                              if (!current.trim() || current.trim() === prevLabel) return careTaskTypeLabel(next)
+                              return current
+                            })
+                            setEditingScheduleTaskType(next)
+                          }}
                           className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
                         >
                           {CARE_TASK_TYPES.map((t) => (
@@ -505,6 +532,7 @@ export function PlantDetail() {
                           const days = Number(editingScheduleIntervalDays)
                           if (!Number.isFinite(days) || days < 1) return
                           await updateCareSchedule(s.id, {
+                            name: editingScheduleName.trim() || careTaskTypeLabel(editingScheduleTaskType),
                             taskType: editingScheduleTaskType,
                             intervalDays: days,
                             startDate: editingScheduleStartDate || undefined,
@@ -530,7 +558,7 @@ export function PlantDetail() {
                 ) : (
                   <>
                     <span className="rounded bg-amber-100 px-2 py-0.5 text-sm text-amber-700">
-                      {CARE_TASK_TYPES.find((t) => t.value === s.taskType)?.label ?? s.taskType}
+                      {scheduleDisplayName(s)}
                     </span>
                     <span className={`rounded px-2 py-0.5 text-xs ${s.scope === 'plant' ? 'bg-blue-100 text-blue-700' : 'bg-stone-100 text-stone-600'}`}>
                       {s.scope === 'plant' ? '仅此植株' : '同品种共享'}
@@ -547,6 +575,7 @@ export function PlantDetail() {
                         type="button"
                         onClick={() => {
                           setEditingScheduleId(s.id)
+                          setEditingScheduleName(scheduleDisplayName(s))
                           setEditingScheduleTaskType(s.taskType)
                           setEditingScheduleIntervalDays(String(s.intervalDays))
                           setEditingScheduleStartDate(s.startDate ?? '')
@@ -683,16 +712,31 @@ export function PlantDetail() {
                   <div className="w-full">
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-xs font-medium text-stone-600 mb-1">类型</label>
-                        <select
-                          value={editingCareLogTaskType}
-                          onChange={(e) => setEditingCareLogTaskType(e.target.value as CareLog['taskType'])}
-                          className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
-                        >
-                          {CARE_TASK_TYPES.map((t) => (
-                            <option key={t.value} value={t.value}>{t.label}</option>
-                          ))}
-                        </select>
+                        {log.name ? (
+                          <>
+                            <label className="block text-xs font-medium text-stone-600 mb-1">名称</label>
+                            <input
+                              type="text"
+                              value={editingCareLogName}
+                              onChange={(e) => setEditingCareLogName(e.target.value)}
+                              maxLength={80}
+                              className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
+                            />
+                          </>
+                        ) : (
+                          <>
+                            <label className="block text-xs font-medium text-stone-600 mb-1">类型</label>
+                            <select
+                              value={editingCareLogTaskType}
+                              onChange={(e) => setEditingCareLogTaskType(e.target.value as CareLog['taskType'])}
+                              className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
+                            >
+                              {CARE_TASK_TYPES.map((t) => (
+                                <option key={t.value} value={t.value}>{t.label}</option>
+                              ))}
+                            </select>
+                          </>
+                        )}
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-stone-600 mb-1">完成时间</label>
@@ -722,6 +766,7 @@ export function PlantDetail() {
                             taskType: editingCareLogTaskType,
                             doneAt: iso,
                             notes: editingCareLogNotes || undefined,
+                            ...(log.name ? { name: editingCareLogName.trim() } : {}),
                           })
                           setEditingCareLogId(null)
                           refresh()
@@ -743,7 +788,7 @@ export function PlantDetail() {
                   <>
                     <div>
                       <span className="rounded bg-amber-100 px-2 py-0.5 text-sm text-amber-700">
-                        {CARE_TASK_TYPES.find((t) => t.value === log.taskType)?.label ?? log.taskType}
+                        {careLogDisplayName(log)}
                       </span>
                       <span className="ml-2 text-stone-600 text-sm">{formatDateOnly(log.doneAt)}</span>
                       {log.notes && (
@@ -758,6 +803,7 @@ export function PlantDetail() {
                         onClick={() => {
                           setEditingCareLogId(log.id)
                           setEditingCareLogTaskType(log.taskType)
+                          setEditingCareLogName(log.name ?? '')
                           setEditingCareLogDoneAt(new Date(log.doneAt).toISOString().slice(0, 16))
                           setEditingCareLogNotes(log.notes ?? '')
                         }}
@@ -1022,6 +1068,7 @@ function ScheduleForm({
   onCancel: () => void
 }) {
   const [taskType, setTaskType] = useState<CareSchedule['taskType']>('watering')
+  const [name, setName] = useState('浇水')
   const [intervalDays, setIntervalDays] = useState('7')
   const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [endDate, setEndDate] = useState('')
@@ -1036,6 +1083,7 @@ function ScheduleForm({
       plantId,
       scope,
       taskType,
+      name: name.trim() || careTaskTypeLabel(taskType),
       intervalDays: days,
       startDate: startDate || undefined,
       endDate: endDate || undefined,
@@ -1046,12 +1094,31 @@ function ScheduleForm({
 
   return (
     <form onSubmit={handleSubmit} className="rounded-lg border border-stone-200 bg-stone-50 p-4 space-y-3 mb-3">
+      <div>
+        <label className="block text-xs font-medium text-stone-600 mb-1">名称</label>
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          maxLength={80}
+          placeholder="例如：夏季浇水"
+          className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
+        />
+      </div>
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="block text-xs font-medium text-stone-600 mb-1">类型</label>
           <select
             value={taskType}
-            onChange={(e) => setTaskType(e.target.value as CareSchedule['taskType'])}
+            onChange={(e) => {
+              const next = e.target.value as CareSchedule['taskType']
+              setName((current) => {
+                const prevLabel = careTaskTypeLabel(taskType)
+                if (!current.trim() || current.trim() === prevLabel) return careTaskTypeLabel(next)
+                return current
+              })
+              setTaskType(next)
+            }}
             className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
           >
             {CARE_TASK_TYPES.map((t) => (

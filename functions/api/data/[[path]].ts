@@ -1,5 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { addDays, computeDueFromLast, computeNextDue, inScheduleWindow, shouldIncludeInRange } from './schedule-algorithm'
+import {
+  addDays,
+  careLogMatchesSchedule,
+  computeDueFromLast,
+  computeNextDue,
+  inScheduleWindow,
+  schedulePublicId,
+  shouldIncludeInRange,
+} from './schedule-algorithm'
 interface D1Database {
   prepare: (query: string) => {
     bind: (...args: any[]) => {
@@ -70,6 +78,27 @@ function toGrowth(row: any) {
     createdAt: row.created_at,
   }
 }
+const TASK_TYPE_LABELS: Record<string, string> = {
+  watering: '浇水',
+  fertilizing: '施肥',
+  pruning: '修剪',
+  repotting: '换盆',
+  pest_control: '除虫',
+  other: '其他',
+}
+
+function scheduleNameFrom(name: unknown, taskType: string): string {
+  const trimmed = typeof name === 'string' ? name.trim() : ''
+  const value = trimmed || TASK_TYPE_LABELS[taskType] || '其他'
+  return value.slice(0, 80)
+}
+
+function optionalLabel(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed ? trimmed.slice(0, 80) : null
+}
+
 function toCareLog(row: any) {
   return {
     id: row.id,
@@ -77,6 +106,8 @@ function toCareLog(row: any) {
     taskType: row.task_type,
     doneAt: row.done_at,
     notes: row.notes ?? undefined,
+    name: optionalLabel(row.name) ?? undefined,
+    scheduleId: optionalLabel(row.schedule_id) ?? undefined,
     createdAt: row.created_at,
   }
 }
@@ -88,6 +119,7 @@ function toSchedule(row: any) {
     id,
     plantId: row.plant_id,
     scope,
+    name: scheduleNameFrom(row.name, row.task_type ?? 'other'),
     taskType: row.task_type,
     intervalDays: row.interval_days,
     startDate: row.start_date ?? undefined,
@@ -238,7 +270,7 @@ export const onRequest = async (context: Context) => {
       }
       for (const l of careLogs) {
         await env.DB.prepare(
-          'INSERT OR REPLACE INTO care_logs (id, plant_id, task_type, done_at, notes, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+          'INSERT OR REPLACE INTO care_logs (id, plant_id, task_type, done_at, notes, created_at, name, schedule_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
         )
           .bind(
             l.id ?? crypto.randomUUID(),
@@ -246,20 +278,24 @@ export const onRequest = async (context: Context) => {
             l.taskType ?? 'other',
             l.doneAt ?? new Date().toISOString(),
             l.notes ?? null,
-            l.createdAt ?? new Date().toISOString()
+            l.createdAt ?? new Date().toISOString(),
+            optionalLabel(l.name),
+            optionalLabel(l.scheduleId)
           )
           .run()
       }
       for (const s of careSchedules) {
+        const importedTaskType = s.taskType ?? 'other'
         await env.DB.prepare(
-          'INSERT OR REPLACE INTO care_schedules (id, plant_id, task_type, interval_days, created_at) VALUES (?, ?, ?, ?, ?)'
+          'INSERT OR REPLACE INTO care_schedules (id, plant_id, task_type, interval_days, created_at, name) VALUES (?, ?, ?, ?, ?, ?)'
         )
           .bind(
             s.id ?? crypto.randomUUID(),
             s.plantId,
-            s.taskType ?? 'other',
+            importedTaskType,
             s.intervalDays ?? 7,
-            s.createdAt ?? new Date().toISOString()
+            s.createdAt ?? new Date().toISOString(),
+            scheduleNameFrom(s.name, importedTaskType)
           )
           .run()
       }
@@ -394,10 +430,20 @@ export const onRequest = async (context: Context) => {
       const body = (await request.json()) as any
       const rid = crypto.randomUUID()
       const now = new Date().toISOString()
+      const logTaskType = body.taskType ?? 'other'
       await env.DB.prepare(
-        'INSERT INTO care_logs (id, plant_id, task_type, done_at, notes, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+        'INSERT INTO care_logs (id, plant_id, task_type, done_at, notes, created_at, name, schedule_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
       )
-        .bind(rid, id, body.taskType ?? 'other', body.doneAt ?? now, body.notes ?? null, now)
+        .bind(
+          rid,
+          id,
+          logTaskType,
+          body.doneAt ?? now,
+          body.notes ?? null,
+          now,
+          optionalLabel(body.name),
+          optionalLabel(body.scheduleId)
+        )
         .run()
       const { results } = await env.DB.prepare('SELECT * FROM care_logs WHERE id = ?').bind(rid).all()
       return Response.json(toCareLog(results[0]), { status: 201, headers: CORS })
@@ -439,19 +485,21 @@ export const onRequest = async (context: Context) => {
       const now = new Date().toISOString()
       if (body.scope === 'plant') {
         const sid = crypto.randomUUID()
+        const plantTaskType = body.taskType ?? 'other'
         await env.DB
           .prepare(
-            'INSERT INTO care_schedules (id, plant_id, task_type, interval_days, start_date, end_date, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO care_schedules (id, plant_id, task_type, interval_days, start_date, end_date, note, created_at, name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
           )
           .bind(
             sid,
             id,
-            body.taskType ?? 'other',
+            plantTaskType,
             body.intervalDays ?? 7,
             body.startDate ?? null,
             body.endDate ?? null,
             body.note ?? null,
-            now
+            now,
+            scheduleNameFrom(body.name, plantTaskType)
           )
           .run()
         const { results } = await env.DB.prepare('SELECT * FROM care_schedules WHERE id = ?').bind(sid).all()
@@ -459,20 +507,22 @@ export const onRequest = async (context: Context) => {
       }
 
       const tid = crypto.randomUUID()
+      const templateTaskType = body.taskType ?? 'other'
       await env.DB
         .prepare(
-          'INSERT INTO care_schedule_templates (id, user_id, variety_key, task_type, interval_days, start_date, end_date, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          'INSERT INTO care_schedule_templates (id, user_id, variety_key, task_type, interval_days, start_date, end_date, note, created_at, name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         )
         .bind(
           tid,
           user.id,
           vkey,
-          body.taskType ?? 'other',
+          templateTaskType,
           body.intervalDays ?? 7,
           body.startDate ?? null,
           body.endDate ?? null,
           body.note ?? null,
-          now
+          now,
+          scheduleNameFrom(body.name, templateTaskType)
         )
         .run()
       const { results } = await env.DB.prepare('SELECT * FROM care_schedule_templates WHERE id = ?').bind(tid).all()
@@ -531,8 +581,10 @@ export const onRequest = async (context: Context) => {
       const nextTaskType = body.taskType ?? current.task_type
       const nextDoneAt = body.doneAt ?? current.done_at
       const nextNotes = body.notes !== undefined ? body.notes : current.notes
-      await env.DB.prepare('UPDATE care_logs SET task_type = ?, done_at = ?, notes = ? WHERE id = ?')
-        .bind(nextTaskType, nextDoneAt, nextNotes ?? null, cid)
+      const nextName = body.name !== undefined ? optionalLabel(body.name) : current.name
+      const nextScheduleId = body.scheduleId !== undefined ? optionalLabel(body.scheduleId) : current.schedule_id
+      await env.DB.prepare('UPDATE care_logs SET task_type = ?, done_at = ?, notes = ?, name = ?, schedule_id = ? WHERE id = ?')
+        .bind(nextTaskType, nextDoneAt, nextNotes ?? null, nextName ?? null, nextScheduleId ?? null, cid)
         .run()
       const after = await env.DB.prepare('SELECT * FROM care_logs WHERE id = ?').bind(cid).all()
       return Response.json(toCareLog(after.results[0]), { headers: CORS })
@@ -578,9 +630,10 @@ export const onRequest = async (context: Context) => {
         const nextStartDate = body.startDate !== undefined ? body.startDate : current.start_date
         const nextEndDate = body.endDate !== undefined ? body.endDate : current.end_date
         const nextNote = body.note !== undefined ? body.note : current.note
+        const nextName = body.name !== undefined ? scheduleNameFrom(body.name, nextTaskType) : scheduleNameFrom(current.name, nextTaskType)
         await env.DB
-          .prepare('UPDATE care_schedules SET task_type = ?, interval_days = ?, start_date = ?, end_date = ?, note = ? WHERE id = ?')
-          .bind(nextTaskType, nextIntervalDays, nextStartDate ?? null, nextEndDate ?? null, nextNote ?? null, sid.id)
+          .prepare('UPDATE care_schedules SET task_type = ?, interval_days = ?, start_date = ?, end_date = ?, note = ?, name = ? WHERE id = ?')
+          .bind(nextTaskType, nextIntervalDays, nextStartDate ?? null, nextEndDate ?? null, nextNote ?? null, nextName, sid.id)
           .run()
         const after = await env.DB.prepare('SELECT * FROM care_schedules WHERE id = ?').bind(sid.id).all()
         return Response.json(toSchedule({ ...(after.results as any[])[0], scope: 'plant' }), { headers: CORS })
@@ -597,9 +650,10 @@ export const onRequest = async (context: Context) => {
       const nextStartDate = body.startDate !== undefined ? body.startDate : current.start_date
       const nextEndDate = body.endDate !== undefined ? body.endDate : current.end_date
       const nextNote = body.note !== undefined ? body.note : current.note
+      const nextName = body.name !== undefined ? scheduleNameFrom(body.name, nextTaskType) : scheduleNameFrom(current.name, nextTaskType)
       await env.DB
-        .prepare('UPDATE care_schedule_templates SET task_type = ?, interval_days = ?, start_date = ?, end_date = ?, note = ? WHERE id = ?')
-        .bind(nextTaskType, nextIntervalDays, nextStartDate ?? null, nextEndDate ?? null, nextNote ?? null, sid.id)
+        .prepare('UPDATE care_schedule_templates SET task_type = ?, interval_days = ?, start_date = ?, end_date = ?, note = ?, name = ? WHERE id = ?')
+        .bind(nextTaskType, nextIntervalDays, nextStartDate ?? null, nextEndDate ?? null, nextNote ?? null, nextName, sid.id)
         .run()
       const after = await env.DB.prepare('SELECT * FROM care_schedule_templates WHERE id = ?').bind(sid.id).all()
       return Response.json(toSchedule({ ...(after.results as any[])[0], plant_id: current.plant_id ?? '', scope: 'shared' }), { headers: CORS })
@@ -628,9 +682,11 @@ export const onRequest = async (context: Context) => {
       const templates = templatesRes.results as any[]
       const plantSchedules = plantSchedulesRes.results as any[]
       const logs = logsRes.results as any[]
-      const lastDone = (plantId: string, taskType: string) => {
-        const same = logs.filter((l: any) => l.plant_id === plantId && l.task_type === taskType)
-        return same[0] ? isoToLocalDate(same[0].done_at, tzOffsetMinutes) : null
+      const lastDone = (plantId: string, scheduleId: string, taskType: string) => {
+        const same = logs.find(
+          (l: any) => l.plant_id === plantId && careLogMatchesSchedule(l, { id: scheduleId, task_type: taskType })
+        )
+        return same ? isoToLocalDate(same.done_at, tzOffsetMinutes) : null
       }
       const result: any[] = []
       const byVariety: Record<string, any[]> = {}
@@ -646,7 +702,7 @@ export const onRequest = async (context: Context) => {
           ...plantSchedules.filter((s) => s.plant_id === plant.id).map((s) => ({ ...s, scope: 'plant' })),
         ]
         for (const t of mergedSchedules) {
-          const last = lastDone(plant.id, t.task_type)
+          const last = lastDone(plant.id, schedulePublicId(t.scope, t.id), t.task_type)
           const nextDue =
             range === 'today'
               ? computeDueFromLast(today, last, t.interval_days, t.start_date)
@@ -686,9 +742,11 @@ export const onRequest = async (context: Context) => {
       const templates = templatesRes.results as any[]
       const plantSchedules = plantSchedulesRes.results as any[]
       const logs = logsRes.results as any[]
-      const lastDone = (plantId: string, taskType: string) => {
-        const same = logs.filter((l: any) => l.plant_id === plantId && l.task_type === taskType)
-        return same[0] ? isoToLocalDate(same[0].done_at, tzOffsetMinutes) : null
+      const lastDone = (plantId: string, scheduleId: string, taskType: string) => {
+        const same = logs.find(
+          (l: any) => l.plant_id === plantId && careLogMatchesSchedule(l, { id: scheduleId, task_type: taskType })
+        )
+        return same ? isoToLocalDate(same.done_at, tzOffsetMinutes) : null
       }
       let count = 0
       const byVariety: Record<string, any[]> = {}
@@ -705,7 +763,7 @@ export const onRequest = async (context: Context) => {
         ]
         for (const t of mergedSchedules) {
           if (!inScheduleWindow(today, t.start_date, t.end_date)) continue
-          const last = lastDone(plant.id, t.task_type)
+          const last = lastDone(plant.id, schedulePublicId(t.scope, t.id), t.task_type)
           const nextDue = computeNextDue(today, last, t.interval_days, t.start_date)
           if (t.end_date && nextDue > t.end_date) continue
           if (nextDue <= today) count++
@@ -736,9 +794,11 @@ export const onRequest = async (context: Context) => {
       const templates = templatesRes.results as any[]
       const plantSchedules = plantSchedulesRes.results as any[]
       const logs = logsRes.results as any[]
-      const lastDone = (plantId: string, taskType: string) => {
-        const same = logs.filter((l: any) => l.plant_id === plantId && l.task_type === taskType)
-        return same[0] ? isoToLocalDate(same[0].done_at, tzOffsetMinutes) : null
+      const lastDone = (plantId: string, scheduleId: string, taskType: string) => {
+        const same = logs.find(
+          (l: any) => l.plant_id === plantId && careLogMatchesSchedule(l, { id: scheduleId, task_type: taskType })
+        )
+        return same ? isoToLocalDate(same.done_at, tzOffsetMinutes) : null
       }
       const result: any[] = []
       const byVariety: Record<string, any[]> = {}
@@ -755,7 +815,7 @@ export const onRequest = async (context: Context) => {
         ]
         for (const t of mergedSchedules) {
           if (!inScheduleWindow(dateStr, t.start_date, t.end_date)) continue
-          const last = lastDone(plant.id, t.task_type)
+          const last = lastDone(plant.id, schedulePublicId(t.scope, t.id), t.task_type)
           const nextDue = computeNextDue(today, last, t.interval_days, t.start_date)
           if (t.end_date && nextDue > t.end_date) continue
           if (nextDue === dateStr)

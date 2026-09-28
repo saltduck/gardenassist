@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { getDueTasks, addCareLog, deleteCareSchedule, updateCareSchedule } from '../lib/storage-api'
 import type { DueTask } from '../lib/storage-api'
-import { CARE_TASK_TYPES } from '../types/plant'
+import { CARE_TASK_TYPES, careTaskTypeLabel, scheduleDisplayName } from '../types/plant'
 import { MarkdownView } from '../components/MarkdownView'
 import { MarkdownTextarea } from '../components/MarkdownTextarea'
 
@@ -23,9 +23,10 @@ function TaskRow({
   onComplete: () => void
   onAfterChange: () => void
 }) {
-  const label = CARE_TASK_TYPES.find((t) => t.value === task.schedule.taskType)?.label ?? task.schedule.taskType
+  const label = scheduleDisplayName(task.schedule)
   const isOverdue = task.nextDue < new Date().toISOString().slice(0, 10)
   const [editing, setEditing] = useState(false)
+  const [name, setName] = useState(scheduleDisplayName(task.schedule))
   const [taskType, setTaskType] = useState(task.schedule.taskType)
   const [intervalDays, setIntervalDays] = useState(String(task.schedule.intervalDays))
   const [startDate, setStartDate] = useState(task.schedule.startDate ?? '')
@@ -98,12 +99,30 @@ function TaskRow({
             </span>
             <span className="text-xs text-stone-500">编辑仅修改周期与备注，不改变计划范围</span>
           </div>
+          <div className="mb-3">
+            <label className="block text-xs font-medium text-stone-600 mb-1">名称</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              maxLength={80}
+              className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
+            />
+          </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className="block text-xs font-medium text-stone-600 mb-1">类型</label>
               <select
                 value={taskType}
-                onChange={(e) => setTaskType(e.target.value as any)}
+                onChange={(e) => {
+                  const next = e.target.value as typeof taskType
+                  setName((current) => {
+                    const prevLabel = careTaskTypeLabel(taskType)
+                    if (!current.trim() || current.trim() === prevLabel) return careTaskTypeLabel(next)
+                    return current
+                  })
+                  setTaskType(next)
+                }}
                 className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
               >
                 {CARE_TASK_TYPES.map((t) => (
@@ -159,6 +178,7 @@ function TaskRow({
                 const days = Number(intervalDays)
                 if (!Number.isFinite(days) || days < 1) return
                 await updateCareSchedule(task.schedule.id, {
+                  name: name.trim() || careTaskTypeLabel(taskType),
                   taskType,
                   intervalDays: days,
                   startDate: startDate || undefined,
@@ -175,6 +195,7 @@ function TaskRow({
             <button
               type="button"
               onClick={() => {
+                setName(scheduleDisplayName(task.schedule))
                 setTaskType(task.schedule.taskType)
                 setIntervalDays(String(task.schedule.intervalDays))
                 setStartDate(task.schedule.startDate ?? '')
@@ -212,6 +233,8 @@ export function Tasks() {
     await addCareLog({
       plantId: task.plant.id,
       taskType: task.schedule.taskType,
+      name: scheduleDisplayName(task.schedule),
+      scheduleId: task.schedule.id,
       doneAt: new Date().toISOString(),
     })
     refresh()

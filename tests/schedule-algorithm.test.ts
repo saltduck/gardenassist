@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
   addDays,
+  careLogMatchesSchedule,
   computeDueFromLast,
   computeNextDue,
   inScheduleWindow,
+  schedulePublicId,
   shouldIncludeInRange,
 } from '../functions/api/data/schedule-algorithm'
 
@@ -54,6 +56,26 @@ describe('schedule algorithm', () => {
 
   it('computeDueFromLast should keep overdue date for today list', () => {
     expect(computeDueFromLast('2026-03-15', '2026-03-01', 7)).toBe('2026-03-08')
+  })
+
+  it('completion with a schedule id matches only that plan', () => {
+    const log = { task_type: 'watering', schedule_id: 'plant:a' }
+    expect(careLogMatchesSchedule(log, { id: 'plant:a', task_type: 'watering' })).toBe(true)
+    expect(careLogMatchesSchedule(log, { id: 'plant:b', task_type: 'watering' })).toBe(false)
+    expect(careLogMatchesSchedule(log, { id: 'tpl:a', task_type: 'watering' })).toBe(false)
+  })
+
+  it('legacy log without schedule id still matches by task type', () => {
+    const log = { task_type: 'watering', schedule_id: null }
+    expect(careLogMatchesSchedule(log, { id: 'plant:a', task_type: 'watering' })).toBe(true)
+    expect(careLogMatchesSchedule(log, { id: 'tpl:b', task_type: 'fertilizing' })).toBe(false)
+    expect(careLogMatchesSchedule({ task_type: 'pruning', schedule_id: '  ' }, { id: 'plant:a', task_type: 'pruning' })).toBe(true)
+  })
+
+  it('schedulePublicId prefixes raw ids and keeps existing prefixes', () => {
+    expect(schedulePublicId('plant', 'abc')).toBe('plant:abc')
+    expect(schedulePublicId('shared', 'abc')).toBe('tpl:abc')
+    expect(schedulePublicId('plant', 'tpl:abc')).toBe('tpl:abc')
   })
 
   it('week range should not include today date', () => {

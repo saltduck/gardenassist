@@ -7,7 +7,7 @@ import {
 } from '../lib/storage-api'
 import type { DueTask } from '../lib/storage-api'
 import type { CareLog, Plant } from '../types/plant'
-import { CARE_TASK_TYPES } from '../types/plant'
+import { careLogDisplayName, scheduleDisplayName } from '../types/plant'
 
 function toDateOnly(d: Date): string {
   return d.toISOString().slice(0, 10)
@@ -186,7 +186,7 @@ export function Calendar() {
                           {t.plant.name}
                         </Link>
                         <span className="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">
-                          {CARE_TASK_TYPES.find((x) => x.value === t.schedule.taskType)?.label ?? t.schedule.taskType}
+                          {scheduleDisplayName(t.schedule)}
                         </span>
                       </li>
                     ))}
@@ -210,7 +210,7 @@ export function Calendar() {
                             {plant?.name ?? log.plantId}
                           </Link>
                           <span className="ml-1 rounded bg-emerald-100 px-1.5 py-0.5 text-xs text-emerald-800">
-                            {CARE_TASK_TYPES.find((x) => x.value === log.taskType)?.label ?? log.taskType}
+                            {careLogDisplayName(log)}
                           </span>
                         </li>
                       )
