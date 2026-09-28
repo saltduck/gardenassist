@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { getDueTasks, addCareLog, addCareSkip, deleteCareSchedule, updateCareSchedule } from '../lib/storage-api'
 import type { DueTask } from '../lib/storage-api'
+import { applyLatestTasks, taskListKey } from '../lib/task-refresh'
 import type { CareTaskType } from '../types/plant'
 import { CARE_TASK_TYPES, careTaskTypeLabel, scheduleDisplayName, type CareSchedule } from '../types/plant'
 import { MarkdownView } from '../components/MarkdownView'
@@ -20,7 +21,7 @@ function formatDate(dateStr: string) {
 }
 
 function dueRowKey(task: DueTask): string {
-  return `${task.schedule.id}-${task.nextDue}`
+  return taskListKey(task)
 }
 
 async function fetchDueTaskLists(tzOffsetMinutes: number, todayStr: string): Promise<{ today: DueTask[]; week: DueTask[] }> {
@@ -325,6 +326,7 @@ export function Tasks() {
 
   /** 刚完成但服务端读仍可能滞后的行键，合并任意一次拉列表时都会先隐藏 */
   const pendingHideRowKeysRef = useRef<Set<string>>(new Set())
+  const refreshGen = useRef(0)
 
   const applyFetched = useCallback(
     (todayRaw: DueTask[], weekRaw: DueTask[]) => {
@@ -334,8 +336,11 @@ export function Tasks() {
   )
 
   const refresh = useCallback(async () => {
+    const generation = ++refreshGen.current
     const { today, week } = await fetchDueTaskLists(tzOffsetMinutes, todayStr)
-    applyFetched(today, week)
+    const next = applyLatestTasks(refreshGen.current, generation, today, week, todayStr)
+    if (!next) return
+    applyFetched(next.today, next.week)
   }, [tzOffsetMinutes, todayStr, applyFetched])
 
   useEffect(() => {
@@ -351,15 +356,18 @@ export function Tasks() {
   }, [])
 
   useEffect(() => {
+    const generation = ++refreshGen.current
     let cancelled = false
     ;(async () => {
       try {
         setLoadError(null)
         const { today, week } = await fetchDueTaskLists(tzOffsetMinutes, todayStr)
         if (cancelled) return
-        applyFetched(today, week)
+        const next = applyLatestTasks(refreshGen.current, generation, today, week, todayStr)
+        if (!next) return
+        applyFetched(next.today, next.week)
       } catch (e) {
-        if (!cancelled) setLoadError(getErrorMessage(e, '加载待办失败'))
+        if (!cancelled && generation === refreshGen.current) setLoadError(getErrorMessage(e, '加载待办失败'))
       }
     })()
     return () => {
@@ -388,6 +396,7 @@ export function Tasks() {
     }
 
     pendingHideRowKeysRef.current.add(rowKey)
+    refreshGen.current += 1
     window.setTimeout(() => pendingHideRowKeysRef.current.delete(rowKey), 25_000)
     // 先做乐观隐藏，但保持弹窗在“提交中”状态，直到刷新完成再关闭
     setTodayTasks((prev) => prev.filter((t) => !pendingHideRowKeysRef.current.has(dueRowKey(t))))
@@ -397,8 +406,14 @@ export function Tasks() {
       let rowGone = false
       for (let attempt = 0; attempt < 5; attempt++) {
         if (attempt > 0) await new Promise((r) => setTimeout(r, 300 * attempt))
+        const generation = ++refreshGen.current
         const { today, week } = await fetchDueTaskLists(tzOffsetMinutes, todayStr)
-        applyFetched(today, week)
+        const next = applyLatestTasks(refreshGen.current, generation, today, week, todayStr)
+        if (!next) {
+          setCompleteTask(null)
+          return
+        }
+        applyFetched(next.today, next.week)
         const rawStill =
           today.some((t) => dueRowKey(t) === rowKey) || week.some((t) => dueRowKey(t) === rowKey)
         if (!rawStill) {
@@ -440,7 +455,7 @@ export function Tasks() {
           <ul className="space-y-2">
             {todayTasks.map((task) => (
               <TaskRow
-                key={`${task.schedule.id}-${task.nextDue}`}
+                key={dueRowKey(task)}
                 task={task}
                 todayStr={todayStr}
                 userLatitude={userLatitude}
@@ -466,7 +481,7 @@ export function Tasks() {
           <ul className="space-y-2">
             {weekTasks.map((task) => (
               <TaskRow
-                key={`${task.schedule.id}-${task.nextDue}`}
+                key={dueRowKey(task)}
                 task={task}
                 todayStr={todayStr}
                 userLatitude={userLatitude}

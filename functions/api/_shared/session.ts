@@ -78,6 +78,7 @@ export function corsHeaders(request: Request, extra?: Record<string, string>) {
     'Access-Control-Allow-Origin': origin,
     'Access-Control-Allow-Credentials': 'true',
     'Access-Control-Allow-Headers': 'Content-Type',
+    'Cache-Control': 'no-store',
     'Content-Type': 'application/json',
     ...extra,
   }
