@@ -27,6 +27,7 @@ function corsHeaders(request: Request) {
   return {
     'Access-Control-Allow-Origin': origin,
     'Access-Control-Allow-Credentials': 'true',
+    'Cache-Control': 'no-store',
     'Content-Type': 'application/json',
   }
 }

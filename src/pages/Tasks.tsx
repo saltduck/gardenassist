@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { getDueTasks, addCareLog, deleteCareSchedule, updateCareSchedule } from '../lib/storage-api'
 import type { DueTask } from '../lib/storage-api'
+import { applyLatestTasks, dropTask, localCalendarDate, taskListKey } from '../lib/task-refresh'
 import { CARE_TASK_TYPES, careTaskTypeLabel, scheduleDisplayName } from '../types/plant'
 import { MarkdownView } from '../components/MarkdownView'
 import { MarkdownTextarea } from '../components/MarkdownTextarea'
@@ -217,27 +218,45 @@ function TaskRow({
 export function Tasks() {
   const [todayTasks, setTodayTasks] = useState<DueTask[]>([])
   const [weekTasks, setWeekTasks] = useState<DueTask[]>([])
+  const refreshGen = useRef(0)
+  const completing = useRef(new Set<string>())
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
+    const generation = ++refreshGen.current
     const [today, week] = await Promise.all([getDueTasks('today'), getDueTasks('week')])
-    const todayStr = new Date().toISOString().slice(0, 10)
-    setTodayTasks(today)
-    setWeekTasks(week.filter((t) => t.nextDue > todayStr))
-  }
-
-  useEffect(() => {
-    refresh()
+    const next = applyLatestTasks(refreshGen.current, generation, today, week, localCalendarDate())
+    if (!next) return
+    setTodayTasks(next.today)
+    setWeekTasks(next.week)
   }, [])
 
+  useEffect(() => {
+    void refresh()
+  }, [refresh])
+
   const handleComplete = async (task: DueTask) => {
-    await addCareLog({
-      plantId: task.plant.id,
-      taskType: task.schedule.taskType,
-      name: scheduleDisplayName(task.schedule),
-      scheduleId: task.schedule.id,
-      doneAt: new Date().toISOString(),
-    })
-    refresh()
+    const key = taskListKey(task)
+    if (completing.current.has(key)) return
+    completing.current.add(key)
+    // 先作废进行中的刷新，再从列表移除，避免旧响应把这条待办写回来。
+    refreshGen.current += 1
+    setTodayTasks((rows) => dropTask(rows, key, taskListKey))
+    setWeekTasks((rows) => dropTask(rows, key, taskListKey))
+    try {
+      await addCareLog({
+        plantId: task.plant.id,
+        taskType: task.schedule.taskType,
+        name: scheduleDisplayName(task.schedule),
+        scheduleId: task.schedule.id,
+        doneAt: new Date().toISOString(),
+      })
+    } catch {
+      await refresh()
+      return
+    } finally {
+      completing.current.delete(key)
+    }
+    await refresh()
   }
 
   return (
@@ -255,7 +274,7 @@ export function Tasks() {
           <ul className="space-y-2">
             {todayTasks.map((task) => (
               <TaskRow
-                key={`${task.schedule.id}-${task.nextDue}`}
+                key={taskListKey(task)}
                 task={task}
                 onComplete={() => handleComplete(task)}
                 onAfterChange={refresh}
@@ -275,7 +294,7 @@ export function Tasks() {
           <ul className="space-y-2">
             {weekTasks.map((task) => (
               <TaskRow
-                key={`${task.schedule.id}-${task.nextDue}`}
+                key={taskListKey(task)}
                 task={task}
                 onComplete={() => handleComplete(task)}
                 onAfterChange={refresh}
