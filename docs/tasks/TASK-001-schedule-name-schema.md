@@ -2,7 +2,7 @@
 
 - Status: done
 - Owner: agent
-- Source: docs/migration-report.md
+- Source: input/requirements.md
 
 ## Objective
 
@@ -10,7 +10,7 @@
 
 ## Scope
 
-- `migrations/0012_schedule_name.sql`
+- `migrations/0022_schedule_name.sql`
 - `src/types/plant.ts`
 - `functions/api/data/[[path]].ts` 的读写与导入
 

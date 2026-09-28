@@ -1,15 +1,30 @@
-type Env = { OPENAI_API_KEY: string }
+import { consumeRateLimit } from '../_shared/rate-limit'
+import { corsHeaders, requireSessionUser, type SessionD1 } from '../_shared/session'
+
+type Env = { DB: SessionD1; OPENAI_API_KEY: string }
 type Context = { request: Request; env: Env }
 
 export const onRequestPost = async (context: Context) => {
   const { request, env } = context
-  const cors = { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' }
+  const cors = corsHeaders(request)
   try {
+    const auth = await requireSessionUser(env.DB, request)
+    if (auth instanceof Response) return auth
+
+    const rl = await consumeRateLimit(env.DB, `ai:identify:${auth.id}`, 30, 60 * 60 * 1000)
+    if (!rl.allowed) {
+      return Response.json({ success: false, error: '识别请求过于频繁，请稍后再试' }, { status: 429, headers: cors })
+    }
+
     if (!env.OPENAI_API_KEY) {
-      return Response.json({
-        success: false,
-        error: 'OPENAI_API_KEY 未配置。请到 Pages 项目 Settings → Environment variables 为当前环境添加 OPENAI_API_KEY 并重新部署。',
-      }, { status: 500, headers: cors })
+      return Response.json(
+        {
+          success: false,
+          error:
+            'OPENAI_API_KEY 未配置。请到 Pages 项目 Settings → Environment variables 为当前环境添加 OPENAI_API_KEY 并重新部署。',
+        },
+        { status: 500, headers: cors }
+      )
     }
     let base64 = ''
     const contentType = request.headers.get('content-type') ?? ''
@@ -58,10 +73,12 @@ export const onRequestPost = async (context: Context) => {
     })
     const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }>; error?: { message?: string } }
     if (!res.ok) {
-      return Response.json(
-        { success: false, error: data.error?.message ?? res.statusText },
-        { status: res.status, headers: cors }
-      )
+      const upstreamError = data.error?.message ?? res.statusText
+      const error =
+        res.status === 429 || /quota|billing|api-errors/i.test(upstreamError)
+          ? 'OpenAI 识别服务当前不可用，请稍后再试或手动填写植物信息'
+          : upstreamError
+      return Response.json({ success: false, error }, { status: res.status, headers: cors })
     }
     const raw = data.choices?.[0]?.message?.content?.trim() ?? ''
     let name = ''

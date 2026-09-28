@@ -9,6 +9,9 @@ import { Calendar } from './pages/Calendar'
 import { Settings } from './pages/Settings'
 import { Login } from './pages/Login'
 import { Register } from './pages/Register'
+import { ForgotPassword } from './pages/ForgotPassword'
+import { ResetPassword } from './pages/ResetPassword'
+import { GardenMap } from './pages/GardenMap'
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { getMe, type AuthUser } from './lib/auth-api'
@@ -65,9 +68,12 @@ function App() {
           <Route path="tasks" element={<Tasks />} />
           <Route path="calendar" element={<Calendar />} />
           <Route path="settings" element={<Settings />} />
+          <Route path="garden-map" element={<GardenMap />} />
         </Route>
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
       </Routes>
     </BrowserRouter>
   )

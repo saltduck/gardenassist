@@ -1,5 +1,7 @@
 # 花园植物生长养护跟踪网站 — 开发计划
 
+> **历史文档**：本文件为早期规划。当前产品与技术约定以 [`product-spec.md`](../requirements/product-spec.md)、[`AGENTS.md`](../../AGENTS.md)、[`docs/README.md`](../README.md) 为准（数据已迁移为 D1-only，不再使用 localStorage 主存储）。
+
 ## 一、项目目标
 
 做一个**个人花园管理网站**，用于：
@@ -177,7 +179,7 @@ gardenassit/
 ├── package.json
 ├── vite.config.ts
 ├── index.html
-├── PLAN.md                 # 本计划
+├── docs/decisions/PLAN-historical.md                 # 本计划
 ├── public/
 └── src/
     ├── main.tsx

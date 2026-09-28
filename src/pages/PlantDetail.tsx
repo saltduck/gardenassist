@@ -19,14 +19,16 @@ import {
 import { getAdvice, getCarePlan } from '../lib/api'
 import type { CarePlanItem } from '../lib/api'
 import type { TimelineItem } from '../types/data'
-import { CARE_TASK_TYPES, careLogDisplayName, careTaskTypeLabel, scheduleDisplayName } from '../types/plant'
-import type { Plant, GrowthRecord, CareLog, CareSchedule } from '../types/plant'
+import { CARE_TASK_TYPES, archiveReasonLabel, careLogDisplayName, careTaskTypeLabel, scheduleDisplayName } from '../types/plant'
+import { formatScheduleIntervalDisplay } from '../lib/season-watering'
+import type { Plant, GrowthRecord, CareLog, CareSchedule, ArchiveReason } from '../types/plant'
 import type { CareTaskType } from '../types/plant'
 import { useEffect, useRef, useState } from 'react'
-import { getUserSettings } from '../lib/user-settings'
+import { getUserSettings } from '../lib/storage-api'
 import { uploadPhoto } from '../lib/upload-api'
 import { MarkdownView } from '../components/MarkdownView'
 import { MarkdownTextarea } from '../components/MarkdownTextarea'
+import { getErrorMessage } from '../lib/api-error'
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('zh-CN', {
@@ -53,6 +55,11 @@ function formatDateOnlyFromDate(dateStr?: string) {
   })
 }
 
+function localYmdToday() {
+  const n = new Date()
+  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`
+}
+
 export function PlantDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -65,17 +72,18 @@ export function PlantDetail() {
   const [showCareForm, setShowCareForm] = useState(false)
   const [showScheduleForm, setShowScheduleForm] = useState(false)
   const [editingCareLogId, setEditingCareLogId] = useState<string | null>(null)
-  const [editingCareLogTaskType, setEditingCareLogTaskType] = useState<CareLog['taskType']>('watering')
   const [editingCareLogName, setEditingCareLogName] = useState('')
+  const [editingCareLogTaskType, setEditingCareLogTaskType] = useState<CareLog['taskType']>('watering')
   const [editingCareLogDoneAt, setEditingCareLogDoneAt] = useState('')
   const [editingCareLogNotes, setEditingCareLogNotes] = useState('')
   const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null)
-  const [editingScheduleTaskType, setEditingScheduleTaskType] = useState<CareSchedule['taskType']>('watering')
   const [editingScheduleName, setEditingScheduleName] = useState('')
+  const [editingScheduleTaskType, setEditingScheduleTaskType] = useState<CareSchedule['taskType']>('watering')
   const [editingScheduleIntervalDays, setEditingScheduleIntervalDays] = useState('7')
   const [editingScheduleStartDate, setEditingScheduleStartDate] = useState('')
   const [editingScheduleEndDate, setEditingScheduleEndDate] = useState('')
   const [editingScheduleNote, setEditingScheduleNote] = useState('')
+  const [editingScheduleSeasonal, setEditingScheduleSeasonal] = useState(false)
   const [adviceQuestion, setAdviceQuestion] = useState('')
   const [adviceLoading, setAdviceLoading] = useState(false)
   const [adviceResult, setAdviceResult] = useState<string | null>(null)
@@ -85,21 +93,36 @@ export function PlantDetail() {
   const [carePlanSelected, setCarePlanSelected] = useState<Set<number>>(new Set())
   const [carePlanError, setCarePlanError] = useState<string | null>(null)
   const [userLocation, setUserLocation] = useState('')
+  const [userLatitude, setUserLatitude] = useState<number | null>(null)
+  const [settingsError, setSettingsError] = useState<string | null>(null)
+  const [showArchiveDialog, setShowArchiveDialog] = useState(false)
+  const [archiveReason, setArchiveReason] = useState<ArchiveReason>('death')
+  const [archiveSubmitting, setArchiveSubmitting] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   const refresh = async () => {
     if (!id) return
-    const [p, growth, care, tl, sched] = await Promise.all([
-      getPlantById(id),
-      getGrowthRecordsByPlantId(id),
-      getCareLogsByPlantId(id),
-      getTimelineByPlantId(id),
-      getCareSchedulesByPlantId(id),
-    ])
-    setPlant(p ?? null)
-    setGrowthRecords(growth)
-    setCareLogs(care)
-    setTimeline(tl)
-    setCareSchedules(sched)
+    try {
+      setLoadError(null)
+      const [p, growth, care, tl, sched] = await Promise.all([
+        getPlantById(id),
+        getGrowthRecordsByPlantId(id),
+        getCareLogsByPlantId(id),
+        getTimelineByPlantId(id),
+        getCareSchedulesByPlantId(id),
+      ])
+      setPlant(p ?? null)
+      setGrowthRecords(growth)
+      setCareLogs(care)
+      setTimeline(tl)
+      setCareSchedules(sched)
+      if (!p) setLoadError('未找到该植物')
+    } catch (e) {
+      setLoadError(getErrorMessage(e, '加载植物详情失败'))
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => {
@@ -109,8 +132,15 @@ export function PlantDetail() {
   useEffect(() => {
     let mounted = true
     getUserSettings()
-      .then((s) => { if (mounted) setUserLocation(s.location || '') })
-      .catch(() => {})
+      .then((s) => {
+        if (!mounted) return
+        setUserLocation(s.location || '')
+        setUserLatitude(s.latitude ?? null)
+        setSettingsError(null)
+      })
+      .catch((e) => {
+        if (mounted) setSettingsError(getErrorMessage(e, '加载用户设置失败'))
+      })
     return () => { mounted = false }
   }, [])
 
@@ -119,6 +149,29 @@ export function PlantDetail() {
     if (!window.confirm(`确定要删除「${plant.name}」吗？相关生长与养护记录也会被删除。`)) return
     const ok = await deletePlant(id)
     if (ok) navigate('/plants')
+  }
+
+  const handleArchivePlant = async () => {
+    if (!id || !plant || archiveSubmitting) return
+    setArchiveSubmitting(true)
+    try {
+      await updatePlant(id, { archivedAt: new Date().toISOString(), archiveReason })
+      await addGrowthRecord({
+        plantId: id,
+        date: localYmdToday(),
+        notes: `植物已归档（原因：${archiveReasonLabel(archiveReason)}）`,
+      })
+      setShowArchiveDialog(false)
+      await refresh()
+    } finally {
+      setArchiveSubmitting(false)
+    }
+  }
+
+  const handleUnarchivePlant = async () => {
+    if (!id || !plant) return
+    await updatePlant(id, { archivedAt: null, archiveReason: null })
+    await refresh()
   }
 
   if (plant === null && id) {
@@ -132,7 +185,19 @@ export function PlantDetail() {
     )
   }
 
-  if (!plant) return null
+  if (loading) {
+    return <p className="text-stone-600 text-sm">正在加载植物详情…</p>
+  }
+  if (!plant) {
+    return (
+      <div>
+        <p className="text-red-600 text-sm mb-4">{loadError ?? '未找到该植物'}</p>
+        <Link to="/plants" className="text-emerald-600 hover:underline text-sm">
+          返回植物列表
+        </Link>
+      </div>
+    )
+  }
 
   const plantedDate = plant.plantedAt
     ? formatDate(plant.plantedAt)
@@ -145,6 +210,26 @@ export function PlantDetail() {
           ← 返回列表
         </Link>
         <div className="flex gap-2">
+          {plant.archivedAt ? (
+            <button
+              type="button"
+              onClick={handleUnarchivePlant}
+              className="rounded-md border border-emerald-200 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-50"
+            >
+              取消归档
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setArchiveReason('death')
+                setShowArchiveDialog(true)
+              }}
+              className="rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-800 hover:bg-amber-100"
+            >
+              归档
+            </button>
+          )}
           <Link
             to={`/plants/${plant.id}/edit`}
             className="rounded-md border border-stone-300 px-3 py-1.5 text-sm font-medium text-stone-700 hover:bg-stone-100"
@@ -160,6 +245,57 @@ export function PlantDetail() {
           </button>
         </div>
       </div>
+
+      {showArchiveDialog && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="archive-plant-title"
+          onClick={() => {
+            if (!archiveSubmitting) setShowArchiveDialog(false)
+          }}
+        >
+          <div
+            className="w-full max-w-sm rounded-lg border border-stone-200 bg-white p-4 shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="archive-plant-title" className="text-lg font-medium text-stone-800 mb-1">
+              归档植物
+            </h2>
+            <p className="text-sm text-stone-600 mb-3">归档后不再出现在待办与提醒中，历史记录会保留。</p>
+            <label className="block text-sm font-medium text-stone-700 mb-1">归档原因</label>
+            <select
+              value={archiveReason}
+              disabled={archiveSubmitting}
+              onChange={(e) => setArchiveReason(e.target.value as ArchiveReason)}
+              className="mb-4 w-full rounded border border-stone-300 px-3 py-2 text-sm disabled:opacity-60"
+            >
+              <option value="death">死亡</option>
+              <option value="moved">迁走</option>
+              <option value="other">其他</option>
+            </select>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={archiveSubmitting}
+                onClick={() => setShowArchiveDialog(false)}
+                className="rounded border border-stone-300 px-3 py-1.5 text-sm hover:bg-stone-100 disabled:opacity-50"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                disabled={archiveSubmitting}
+                onClick={() => void handleArchivePlant()}
+                className="rounded bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+              >
+                {archiveSubmitting ? '提交中…' : '确认归档'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 档案卡片 */}
       <div className="rounded-lg border border-stone-200 bg-white shadow-sm overflow-hidden mb-6">
@@ -178,6 +314,11 @@ export function PlantDetail() {
             )}
             <div className="min-w-0 flex-1">
               <h1 className="text-2xl font-semibold text-stone-800">{plant.name}</h1>
+              {plant.archivedAt && (
+                <p className="mt-1 inline-flex items-center rounded bg-stone-200 px-2 py-0.5 text-xs text-stone-700">
+                  已归档（{archiveReasonLabel(plant.archiveReason)}）
+                </p>
+              )}
               {plant.variety && (
                 <p className="text-stone-600 mt-1">品种：{plant.variety}</p>
               )}
@@ -199,6 +340,7 @@ export function PlantDetail() {
       {/* AI 助手：养护建议 + 自动养护计划 */}
       <section className="mb-6 rounded-lg border border-stone-200 bg-white p-4 shadow-sm">
         <h2 className="text-lg font-medium text-stone-800 mb-3">AI 助手</h2>
+        {settingsError && <p className="mb-3 text-sm text-amber-700">{settingsError}</p>}
 
         <div className="space-y-4">
           <div>
@@ -308,7 +450,14 @@ export function PlantDetail() {
                           <span className="rounded bg-amber-100 px-1.5 py-0.5">
                             {CARE_TASK_TYPES.find((t) => t.value === item.taskType)?.label ?? item.taskType}
                           </span>
-                          <span>每 {item.intervalDays} 天</span>
+                          <span>
+                            {formatScheduleIntervalDisplay(
+                              item.intervalDays,
+                              item.taskType as CareTaskType,
+                              undefined,
+                              userLatitude
+                            )}
+                          </span>
                           {item.note && (
                             <div className="ml-2 text-xs text-stone-500">
                               <span>· </span>
@@ -322,15 +471,15 @@ export function PlantDetail() {
                       <button
                         type="button"
                         onClick={async () => {
-                          const validTypes: CareTaskType[] = ['watering', 'fertilizing', 'pruning', 'repotting', 'pest_control', 'other']
+                          const validTypes = CARE_TASK_TYPES.map((x) => x.value) as CareTaskType[]
                           for (let i = 0; i < carePlanItems.length; i++) {
                             if (!carePlanSelected.has(i)) continue
                             const item = carePlanItems[i]
                             const taskType = validTypes.includes(item.taskType as CareTaskType) ? (item.taskType as CareTaskType) : 'other'
                             await addCareSchedule({
                               plantId: plant.id,
-                              taskType,
                               name: careTaskTypeLabel(taskType),
+                              taskType,
                               intervalDays: item.intervalDays,
                               note: item.note,
                             })
@@ -450,17 +599,14 @@ export function PlantDetail() {
                       <span className={`rounded px-2 py-0.5 text-xs ${s.scope === 'plant' ? 'bg-blue-100 text-blue-700' : 'bg-stone-100 text-stone-600'}`}>
                         {s.scope === 'plant' ? '仅此植株' : '同品种共享'}
                       </span>
-                      <span className="text-xs text-stone-500">编辑仅修改周期与备注，不改变计划范围</span>
+                      <span className="text-xs text-stone-500">编辑名称、周期与备注，不改变计划范围</span>
                     </div>
                     <div className="mb-3">
                       <label className="block text-xs font-medium text-stone-600 mb-1">名称</label>
                       <input
-                        type="text"
                         value={editingScheduleName}
                         onChange={(e) => setEditingScheduleName(e.target.value)}
-                        maxLength={80}
                         className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
-                        placeholder="例如：夏季浇水"
                       />
                     </div>
                     <div className="grid grid-cols-2 gap-3">
@@ -470,10 +616,10 @@ export function PlantDetail() {
                           value={editingScheduleTaskType}
                           onChange={(e) => {
                             const next = e.target.value as CareSchedule['taskType']
-                            setEditingScheduleName((current) => {
+                            setEditingScheduleName((prev) => {
                               const prevLabel = careTaskTypeLabel(editingScheduleTaskType)
-                              if (!current.trim() || current.trim() === prevLabel) return careTaskTypeLabel(next)
-                              return current
+                              if (!prev.trim() || prev.trim() === prevLabel) return careTaskTypeLabel(next)
+                              return prev
                             })
                             setEditingScheduleTaskType(next)
                           }}
@@ -485,10 +631,10 @@ export function PlantDetail() {
                         </select>
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-stone-600 mb-1">间隔（天）</label>
+                        <label className="block text-xs font-medium text-stone-600 mb-1">间隔（天，0=一次性）</label>
                         <input
                           type="number"
-                          min="1"
+                          min="0"
                           value={editingScheduleIntervalDays}
                           onChange={(e) => setEditingScheduleIntervalDays(e.target.value)}
                           className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
@@ -515,6 +661,16 @@ export function PlantDetail() {
                         />
                       </div>
                     </div>
+                    {editingScheduleTaskType === 'watering' && (
+                      <label className="mt-3 flex items-center gap-2 text-sm text-stone-700">
+                        <input
+                          type="checkbox"
+                          checked={editingScheduleSeasonal}
+                          onChange={(e) => setEditingScheduleSeasonal(e.target.checked)}
+                        />
+                        按季节调整浇水间隔
+                      </label>
+                    )}
                     <div className="mt-3">
                       <label className="block text-xs font-medium text-stone-600 mb-1">备注（可选）</label>
                       <MarkdownTextarea
@@ -530,7 +686,7 @@ export function PlantDetail() {
                         type="button"
                         onClick={async () => {
                           const days = Number(editingScheduleIntervalDays)
-                          if (!Number.isFinite(days) || days < 1) return
+                          if (!Number.isFinite(days) || days < 0) return
                           await updateCareSchedule(s.id, {
                             name: editingScheduleName.trim() || careTaskTypeLabel(editingScheduleTaskType),
                             taskType: editingScheduleTaskType,
@@ -538,6 +694,8 @@ export function PlantDetail() {
                             startDate: editingScheduleStartDate || undefined,
                             endDate: editingScheduleEndDate || undefined,
                             note: editingScheduleNote || undefined,
+                            seasonalWateringAdjust:
+                              editingScheduleTaskType === 'watering' ? editingScheduleSeasonal : undefined,
                           })
                           setEditingScheduleId(null)
                           refresh()
@@ -563,7 +721,14 @@ export function PlantDetail() {
                     <span className={`rounded px-2 py-0.5 text-xs ${s.scope === 'plant' ? 'bg-blue-100 text-blue-700' : 'bg-stone-100 text-stone-600'}`}>
                       {s.scope === 'plant' ? '仅此植株' : '同品种共享'}
                     </span>
-                    <span className="text-stone-600 text-sm">每 {s.intervalDays} 天</span>
+                    <span className="text-stone-600 text-sm">
+                      {formatScheduleIntervalDisplay(
+                        s.intervalDays,
+                        s.taskType,
+                        s.seasonalWateringAdjust,
+                        userLatitude
+                      )}
+                    </span>
                     {(s.startDate || s.endDate) && (
                       <span className="text-stone-500 text-xs">
                         {s.startDate ? `开始 ${formatDateOnlyFromDate(s.startDate)}` : '开始 即刻'}
@@ -581,6 +746,7 @@ export function PlantDetail() {
                           setEditingScheduleStartDate(s.startDate ?? '')
                           setEditingScheduleEndDate(s.endDate ?? '')
                           setEditingScheduleNote(s.note ?? '')
+                          setEditingScheduleSeasonal(s.seasonalWateringAdjust ?? false)
                         }}
                         className="text-stone-600 text-sm hover:underline"
                       >
@@ -712,14 +878,12 @@ export function PlantDetail() {
                   <div className="w-full">
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        {log.name ? (
+                        {log.name?.trim() ? (
                           <>
                             <label className="block text-xs font-medium text-stone-600 mb-1">名称</label>
                             <input
-                              type="text"
                               value={editingCareLogName}
                               onChange={(e) => setEditingCareLogName(e.target.value)}
-                              maxLength={80}
                               className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
                             />
                           </>
@@ -764,9 +928,9 @@ export function PlantDetail() {
                           const iso = editingCareLogDoneAt ? new Date(editingCareLogDoneAt).toISOString() : log.doneAt
                           await updateCareLog(log.id, {
                             taskType: editingCareLogTaskType,
+                            ...(log.name?.trim() ? { name: editingCareLogName.trim() } : {}),
                             doneAt: iso,
                             notes: editingCareLogNotes || undefined,
-                            ...(log.name ? { name: editingCareLogName.trim() } : {}),
                           })
                           setEditingCareLogId(null)
                           refresh()
@@ -802,8 +966,8 @@ export function PlantDetail() {
                         type="button"
                         onClick={() => {
                           setEditingCareLogId(log.id)
-                          setEditingCareLogTaskType(log.taskType)
                           setEditingCareLogName(log.name ?? '')
+                          setEditingCareLogTaskType(log.taskType)
                           setEditingCareLogDoneAt(new Date(log.doneAt).toISOString().slice(0, 16))
                           setEditingCareLogNotes(log.notes ?? '')
                         }}
@@ -994,7 +1158,7 @@ function CareForm({
   onSuccess: () => void
   onCancel: () => void
 }) {
-  const [taskType, setTaskType] = useState<'watering' | 'fertilizing' | 'pruning' | 'repotting' | 'pest_control' | 'other'>('watering')
+  const [taskType, setTaskType] = useState<CareLog['taskType']>('watering')
   const [doneAt, setDoneAt] = useState(new Date().toISOString().slice(0, 16))
   const [notes, setNotes] = useState('')
 
@@ -1067,27 +1231,29 @@ function ScheduleForm({
   onSuccess: () => void
   onCancel: () => void
 }) {
-  const [taskType, setTaskType] = useState<CareSchedule['taskType']>('watering')
   const [name, setName] = useState('浇水')
+  const [taskType, setTaskType] = useState<CareSchedule['taskType']>('watering')
   const [intervalDays, setIntervalDays] = useState('7')
   const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [endDate, setEndDate] = useState('')
   const [note, setNote] = useState('')
   const [scope, setScope] = useState<'shared' | 'plant'>('shared')
+  const [seasonalWateringAdjust, setSeasonalWateringAdjust] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     const days = Number(intervalDays)
-    if (days < 1) return
+    if (!Number.isFinite(days) || days < 0) return
     await addCareSchedule({
       plantId,
       scope,
-      taskType,
       name: name.trim() || careTaskTypeLabel(taskType),
+      taskType,
       intervalDays: days,
       startDate: startDate || undefined,
       endDate: endDate || undefined,
       note: note || undefined,
+      seasonalWateringAdjust: taskType === 'watering' ? seasonalWateringAdjust : undefined,
     })
     onSuccess()
   }
@@ -1097,10 +1263,8 @@ function ScheduleForm({
       <div>
         <label className="block text-xs font-medium text-stone-600 mb-1">名称</label>
         <input
-          type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          maxLength={80}
           placeholder="例如：夏季浇水"
           className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
         />
@@ -1112,10 +1276,10 @@ function ScheduleForm({
             value={taskType}
             onChange={(e) => {
               const next = e.target.value as CareSchedule['taskType']
-              setName((current) => {
+              setName((prev) => {
                 const prevLabel = careTaskTypeLabel(taskType)
-                if (!current.trim() || current.trim() === prevLabel) return careTaskTypeLabel(next)
-                return current
+                if (!prev.trim() || prev.trim() === prevLabel) return careTaskTypeLabel(next)
+                return prev
               })
               setTaskType(next)
             }}
@@ -1127,10 +1291,10 @@ function ScheduleForm({
           </select>
         </div>
         <div>
-          <label className="block text-xs font-medium text-stone-600 mb-1">间隔（天）</label>
+          <label className="block text-xs font-medium text-stone-600 mb-1">间隔（天，0=一次性）</label>
           <input
             type="number"
-            min="1"
+            min="0"
             value={intervalDays}
             onChange={(e) => setIntervalDays(e.target.value)}
             className="w-full rounded border border-stone-300 px-2 py-1.5 text-sm"
@@ -1180,6 +1344,16 @@ function ScheduleForm({
           </label>
         </div>
       </div>
+      {taskType === 'watering' && (
+        <label className="inline-flex items-center gap-2 text-sm text-stone-700">
+          <input
+            type="checkbox"
+            checked={seasonalWateringAdjust}
+            onChange={(e) => setSeasonalWateringAdjust(e.target.checked)}
+          />
+          按季节调整浇水间隔（南/北半球月份系数）
+        </label>
+      )}
       <div>
         <label className="block text-xs font-medium text-stone-600 mb-1">备注（可选）</label>
         <MarkdownTextarea

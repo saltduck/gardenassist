@@ -58,28 +58,56 @@ describe('schedule algorithm', () => {
     expect(computeDueFromLast('2026-03-15', '2026-03-01', 7)).toBe('2026-03-08')
   })
 
-  it('completion with a schedule id matches only that plan', () => {
-    const log = { task_type: 'watering', schedule_id: 'plant:a' }
-    expect(careLogMatchesSchedule(log, { id: 'plant:a', task_type: 'watering' })).toBe(true)
-    expect(careLogMatchesSchedule(log, { id: 'plant:b', task_type: 'watering' })).toBe(false)
-    expect(careLogMatchesSchedule(log, { id: 'tpl:a', task_type: 'watering' })).toBe(false)
+  it('interval 0 without log should be due today or at startDate', () => {
+    expect(computeNextDue('2026-03-15', null, 0)).toBe('2026-03-15')
+    expect(computeNextDue('2026-03-15', null, 0, '2026-03-20')).toBe('2026-03-20')
+    expect(computeDueFromLast('2026-03-15', null, 0)).toBe('2026-03-15')
   })
 
-  it('legacy log without schedule id still matches by task type', () => {
-    const log = { task_type: 'watering', schedule_id: null }
-    expect(careLogMatchesSchedule(log, { id: 'plant:a', task_type: 'watering' })).toBe(true)
-    expect(careLogMatchesSchedule(log, { id: 'tpl:b', task_type: 'fertilizing' })).toBe(false)
-    expect(careLogMatchesSchedule({ task_type: 'pruning', schedule_id: '  ' }, { id: 'plant:a', task_type: 'pruning' })).toBe(true)
-  })
-
-  it('schedulePublicId prefixes raw ids and keeps existing prefixes', () => {
-    expect(schedulePublicId('plant', 'abc')).toBe('plant:abc')
-    expect(schedulePublicId('shared', 'abc')).toBe('tpl:abc')
-    expect(schedulePublicId('plant', 'tpl:abc')).toBe('tpl:abc')
+  it('interval 0 after completion should have no next due', () => {
+    expect(computeNextDue('2026-03-15', '2026-03-10', 0)).toBe(null)
+    expect(computeDueFromLast('2026-03-15', '2026-03-10', 0)).toBe(null)
   })
 
   it('week range should not include today date', () => {
     expect(shouldIncludeInRange('week', '2026-03-15', '2026-03-21', '2026-03-15')).toBe(false)
     expect(shouldIncludeInRange('week', '2026-03-15', '2026-03-21', '2026-03-16')).toBe(true)
+  })
+
+  it('shouldIncludeInRange returns false when nextDue is null', () => {
+    expect(shouldIncludeInRange('today', '2026-03-15', '2026-03-21', null)).toBe(false)
+  })
+
+  it('inScheduleWindow allows open-ended ranges', () => {
+    expect(inScheduleWindow('2026-03-15', null, null)).toBe(true)
+    expect(inScheduleWindow('2026-03-15', '2026-03-10', null)).toBe(true)
+  })
+
+  it('normalizeInterval treats invalid interval as 7', () => {
+    expect(computeNextDue('2026-03-15', null, -1)).toBe('2026-03-15')
+    expect(computeNextDue('2026-03-15', '2026-03-01', NaN)).toBe('2026-03-15')
+  })
+
+  it('computeDueFromLast respects startDate after last done', () => {
+    expect(computeDueFromLast('2026-03-15', '2026-03-01', 7, '2026-03-20')).toBe('2026-03-20')
+  })
+
+  it('schedulePublicId prefixes raw ids and keeps existing prefixes', () => {
+    expect(schedulePublicId('shared', 'abc')).toBe('tpl:abc')
+    expect(schedulePublicId('plant', 'abc')).toBe('plant:abc')
+    expect(schedulePublicId('plant', 'tpl:abc')).toBe('tpl:abc')
+  })
+
+  it('care log with schedule id matches only that plan', () => {
+    const named = { task_type: 'watering', schedule_id: 'plant:a' }
+    expect(careLogMatchesSchedule(named, { id: 'plant:a', task_type: 'watering' })).toBe(true)
+    expect(careLogMatchesSchedule(named, { id: 'plant:b', task_type: 'watering' })).toBe(false)
+    expect(careLogMatchesSchedule({ task_type: 'watering', schedule_id: '  ' }, { id: 'plant:b', task_type: 'watering' })).toBe(true)
+    expect(careLogMatchesSchedule({ task_type: 'watering', schedule_id: null }, { id: 'tpl:1', task_type: 'fertilizing' })).toBe(false)
+  })
+
+  it('interval 0 is one-shot after a last action', () => {
+    expect(computeNextDue('2026-03-15', '2026-03-01', 0)).toBeNull()
+    expect(computeDueFromLast('2026-03-15', null, 0)).toBe('2026-03-15')
   })
 })
