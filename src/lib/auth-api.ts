@@ -1,3 +1,5 @@
+import { ApiError } from './api-error'
+
 export interface AuthUser {
   id: string
   email: string
@@ -12,12 +14,8 @@ async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
     headers: { 'Content-Type': 'application/json', ...options?.headers },
   })
   if (r.status === 204) return undefined as T
-  const data = (await r.json().catch(() => ({}))) as any
-  if (!r.ok) {
-    const err = new Error(data.error || r.statusText) as Error & { status?: number }
-    err.status = r.status
-    throw err
-  }
+  const data = (await r.json().catch(() => ({}))) as { error?: string }
+  if (!r.ok) throw new ApiError(data.error || r.statusText, r.status)
   return data as T
 }
 
@@ -25,8 +23,7 @@ export async function getMe(): Promise<AuthUser | null> {
   try {
     return await fetchJson<AuthUser>('/me')
   } catch (e) {
-    const status = (e as any)?.status
-    if (status === 401) return null
+    if (e instanceof ApiError && e.status === 401) return null
     throw e
   }
 }
@@ -53,6 +50,20 @@ export async function changePassword(currentPassword: string, newPassword: strin
   await fetchJson('/change-password', {
     method: 'POST',
     body: JSON.stringify({ currentPassword, newPassword }),
+  })
+}
+
+export async function requestPasswordReset(email: string): Promise<{ success: boolean; message: string }> {
+  return await fetchJson('/forgot-password', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  })
+}
+
+export async function resetPassword(token: string, newPassword: string): Promise<void> {
+  await fetchJson('/reset-password', {
+    method: 'POST',
+    body: JSON.stringify({ token, newPassword }),
   })
 }
 

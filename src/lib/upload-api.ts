@@ -1,3 +1,4 @@
+import { ApiError } from './api-error'
 import { compressImage } from './compress-image'
 
 const COMPRESS_TARGET_BYTES = 1024 * 1024 // 超过 1MB 时压缩到此大小再上传
@@ -27,7 +28,7 @@ export async function uploadPhoto(file: File): Promise<{ url: string }> {
     body: form,
   })
   const data = await r.json().catch(() => ({})) as { url?: string; error?: string }
-  if (!r.ok) throw new Error(data.error || r.statusText)
+  if (!r.ok) throw new ApiError(data.error || r.statusText, r.status)
   if (!data.url) throw new Error('上传返回无 URL')
   return { url: data.url }
 }

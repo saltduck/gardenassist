@@ -1,22 +1,33 @@
-# 迁移报告：养护计划名称
+# suburb 自动经纬度迁移报告
 
-## 违反新规则的代码
+日期：2026-05-21
 
-1. `CareSchedule` / `CareLog` 没有名称，完成待办时只写入 `taskType`。
-2. `care_schedules`、`care_schedule_templates`、`care_logs` 没有对应列。计划与记录的创建、更新、导入都未读写名称。
-3. 植物详情、待办、日历、仪表盘用任务类型标签作为计划和记录的展示文案。
-4. `GET /tasks/due`、`/tasks/today-count`、`/tasks/due/:date` 只用 `plant_id + task_type` 找最近完成记录。同一类型的多条计划会共享完成时间。
+## 新增规则
+
+设置页保存 suburb 后，应自动查询并写入 `user_settings.latitude` / `user_settings.longitude`。若用户手动填写了经纬度，以手动值为准；若 suburb 变更但前端仍提交旧坐标，服务端应按新 suburb 刷新坐标。保存成功后，前端展示服务端最终保存的经纬度；解析失败时展示错误。
+
+## 现有不满足点
+
+1. `src/lib/storage-api.ts` 的 `setUserSettings` 丢弃 `PUT /settings` 响应，设置页无法回填服务端 geocode 后的坐标。
+2. `src/pages/Settings.tsx` 保存时总是提交当前经纬度字段。用户修改 suburb 后，如果字段仍是旧坐标，会继续把旧坐标提交给服务端。
+3. `functions/api/data/[[path]].ts` 的 `PUT /settings` 仅在请求经纬度为空时 geocode，不能识别“suburb 已变但经纬度仍是旧值”的场景。
 
 ## 影响
 
-- 持久化：两张计划表加 `name`，养护记录加名称快照和来源计划 id。旧计划需回填中文类型名，旧记录保持 `name` 为空以继续显示类型。
-- 用户流程：新建/编辑计划多一个名称；点待办「完成」后，详情、时间线、仪表盘、日历里的这条记录显示名称。
-- 到期：之后的具名完成只影响来源计划。旧的无来源记录仍按类型生效，已有花园的到期日不会整表重算。
+- 天气同步会继续使用旧经纬度，导致日历天气与新 suburb 不匹配。
+- 季节浇水通过纬度判断南北半球，旧坐标会影响有效浇水间隔。
+- Plant.id 识别上传时会带 settings 经纬度，旧坐标会降低识别上下文准确性。
+- 用户界面保存后看不到自动解析结果，无法确认系统是否已设置坐标。
 
-## 迁移顺序
+## 迁移计划
 
-1. 加列并回填已有计划名称；类型与接口读写名称和来源 id。
-2. 到期匹配改为优先 `schedule_id`，无来源 id 时回退 `task_type`。
-3. 计划表单与各展示面改为显示名称；完成待办时写入快照。
+1. 后端读取当前 settings，比较新旧 suburb/location 与经纬度。
+2. 当 suburb/location 变化且请求坐标未被用户手动改动时，忽略旧坐标并按新 suburb 优先 geocode。
+3. geocode 成功后写入新坐标；若 suburb 存在但解析失败，返回可展示的 400 错误。
+4. 前端 `setUserSettings` 返回服务端保存后的 settings。
+5. 设置页保存成功后回填 `latitude` / `longitude`，使用户立即看到自动设置结果。
+6. 增加覆盖后端坐标刷新规则与前端类型契约的针对性验证。
 
-不并行改这三步。算法变更依赖列已经存在，界面依赖接口已经返回字段。
+## 任务
+
+- `docs/tasks/TASK-028-suburb-auto-geocode-settings.md`

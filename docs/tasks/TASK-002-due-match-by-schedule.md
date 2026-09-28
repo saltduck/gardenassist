@@ -2,7 +2,7 @@
 
 - Status: done
 - Owner: agent
-- Source: docs/migration-report.md
+- Source: input/requirements.md
 
 ## Objective
 
@@ -11,7 +11,7 @@
 ## Scope
 
 - `functions/api/data/schedule-algorithm.ts`
-- `functions/api/data/[[path]].ts` 中三处 `lastDone`
+- `functions/api/data/due-tasks.ts` 中的最近动作匹配
 - `tests/schedule-algorithm.test.ts`
 
 ## Out Of Scope

@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom'
-import { getPlantById, createPlant, updatePlant } from '../lib/storage-api'
+import { getPlantById, createPlant, updatePlant, getUserSettings } from '../lib/storage-api'
 import { identifyPlant } from '../lib/api'
 import { uploadPhoto } from '../lib/upload-api'
 import { compressImage } from '../lib/compress-image'
@@ -10,9 +10,11 @@ const emptyForm = {
   name: '',
   variety: '',
   location: '',
+  suburb: '',
   plantedAt: new Date().toISOString().slice(0, 10),
   photoUrl: '',
   notes: '',
+  externalPlantId: '' as string | undefined,
 }
 
 export function PlantForm() {
@@ -25,8 +27,25 @@ export function PlantForm() {
   const [identifyError, setIdentifyError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
+  const [syncVarietyKey, setSyncVarietyKey] = useState(false)
+  const [identifyConfidence, setIdentifyConfidence] = useState<number | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const photoInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (id) return
+    getUserSettings()
+      .then((s) => {
+        setForm((f) => ({
+          ...f,
+          suburb: f.suburb || s.suburb || '',
+          location: f.location || s.location || '',
+        }))
+      })
+      .catch(() => {
+        /* 默认 suburb 非关键，失败时用户可手填 */
+      })
+  }, [id])
 
   useEffect(() => {
     if (!id) return
@@ -36,9 +55,11 @@ export function PlantForm() {
           name: plant.name,
           variety: plant.variety,
           location: plant.location,
+          suburb: plant.suburb ?? '',
           plantedAt: plant.plantedAt.slice(0, 10),
           photoUrl: plant.photoUrl ?? '',
           notes: plant.notes ?? '',
+          externalPlantId: plant.externalPlantId,
         })
       }
     })
@@ -54,6 +75,8 @@ export function PlantForm() {
           plantedAt: new Date(form.plantedAt).toISOString(),
           photoUrl: form.photoUrl,
           notes: form.notes,
+          externalPlantId: form.externalPlantId || undefined,
+          ...(syncVarietyKey ? { syncVarietyKey: true } : {}),
         })
         navigate(`/plants/${id}`)
       } else {
@@ -62,6 +85,7 @@ export function PlantForm() {
           plantedAt: new Date(form.plantedAt).toISOString(),
           photoUrl: form.photoUrl,
           notes: form.notes,
+          externalPlantId: form.externalPlantId || undefined,
         })
         navigate(`/plants/${created.id}`)
       }
@@ -111,15 +135,22 @@ export function PlantForm() {
               setIdentifyLoading(true)
               try {
                 const toSend = file.size > 1024 * 1024 ? await compressImage(file, 1024 * 1024) : file
-                const [res, up] = await Promise.all([
-                  identifyPlant(toSend),
-                  uploadPhoto(toSend).then((r) => r.url).catch(() => ''),
-                ])
+                const settings = await getUserSettings().catch(() => null)
+                const coords =
+                  settings?.latitude != null && settings?.longitude != null
+                    ? { latitude: settings.latitude, longitude: settings.longitude }
+                    : undefined
+                const res = await identifyPlant(toSend, coords)
+                const up = await uploadPhoto(toSend).then((r) => r.url).catch(() => '')
+                setIdentifyConfidence(
+                  res.confidence != null ? Math.round(res.confidence * 100) : null
+                )
                 setForm((f) => ({
                   ...f,
                   name: res.name ?? f.name,
                   variety: res.variety ?? f.variety,
                   photoUrl: up || f.photoUrl,
+                  externalPlantId: res.plantId ?? f.externalPlantId,
                 }))
               } catch (err) {
                 setIdentifyError(err instanceof Error ? err.message : '识别失败')
@@ -150,7 +181,18 @@ export function PlantForm() {
             className="w-full rounded-md border border-stone-300 px-3 py-2 text-stone-800 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
             placeholder="如：绿萝、多肉"
           />
+          {isEdit && (
+            <p className="mt-1 text-xs text-stone-500">
+              修改品种名称不会影响已有养护计划；系统仍按保存时的「品种关联键」匹配同品种共享计划。
+            </p>
+          )}
           {identifyError && <p className="mt-1 text-sm text-red-600">{identifyError}</p>}
+          {identifyConfidence != null && !identifyError && (
+            <p className="mt-1 text-sm text-stone-600">
+              识别置信度约 {identifyConfidence}%
+              {identifyConfidence < 50 ? '，请核对后保存' : ''}
+            </p>
+          )}
         </div>
         <div>
           <label htmlFor="location" className="block text-sm font-medium text-stone-700 mb-1">
@@ -163,6 +205,19 @@ export function PlantForm() {
             onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))}
             className="w-full rounded-md border border-stone-300 px-3 py-2 text-stone-800 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
             placeholder="如：阳台、客厅"
+          />
+        </div>
+        <div>
+          <label htmlFor="suburb" className="block text-sm font-medium text-stone-700 mb-1">
+            郊区 / 街区
+          </label>
+          <input
+            id="suburb"
+            type="text"
+            value={form.suburb}
+            onChange={(e) => setForm((f) => ({ ...f, suburb: e.target.value }))}
+            className="w-full rounded-md border border-stone-300 px-3 py-2 text-stone-800 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            placeholder="可选，如 Paddington"
           />
         </div>
         <div>
@@ -237,6 +292,19 @@ export function PlantForm() {
             textareaClassName="w-full rounded-md border border-stone-300 px-3 py-2 text-stone-800 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
           />
         </div>
+        {isEdit && (
+          <label className="flex cursor-pointer items-start gap-2 rounded-md border border-amber-200 bg-amber-50/80 px-3 py-2 text-sm text-stone-700">
+            <input
+              type="checkbox"
+              checked={syncVarietyKey}
+              onChange={(e) => setSyncVarietyKey(e.target.checked)}
+              className="mt-0.5 rounded border-stone-300 text-emerald-600 focus:ring-emerald-500"
+            />
+            <span>
+              同步更新养护计划关联键（按当前名称+品种重新计算）。一般不要勾选，除非你明确要改与同品种共享模板的匹配方式。
+            </span>
+          </label>
+        )}
         <div className="flex gap-2 pt-2">
           <button
             type="submit"

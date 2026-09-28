@@ -1,0 +1,5 @@
+ALTER TABLE user_settings ADD COLUMN suburb TEXT NOT NULL DEFAULT '';
+ALTER TABLE user_settings ADD COLUMN latitude REAL;
+ALTER TABLE user_settings ADD COLUMN longitude REAL;
+
+ALTER TABLE plants ADD COLUMN suburb TEXT NOT NULL DEFAULT '';
