@@ -75,12 +75,12 @@ GrowthRecord（生长记录）
 └── 用于时间线、图表
 
 CareLog（养护记录）
-├── plantId, taskType, doneAt, notes?
-└── 用于日历、完成历史
+├── plantId, taskType, doneAt, notes?, name?, scheduleId?
+└── 执行计划时写入名称快照；展示优先用名称，否则用任务类型
 
 CareSchedule（养护计划 - 可选）
-├── plantId, taskType, intervalDays, lastDoneAt?
-└── 用于生成「今日待办」
+├── plantId, name, taskType, intervalDays, scope?
+└── 待办与计划列表展示名称；完成记录按 scheduleId 推进对应计划
 ```
 
 ---
